@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · NUS Coding Clinic</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%231f6feb' d='M1.25 3A1.75 1.75 0 0 1 3 1.25h10A1.75 1.75 0 0 1 14.75 3v7A1.75 1.75 0 0 1 13 11.75H7.5L4 14.75V11.75H3A1.75 1.75 0 0 1 1.25 10Z'/%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M6.25 5.5 4.25 7.5l2 2M9.75 5.5l2 2-2 2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/css/main.css">
+  <script>
+    /* apply the saved theme before first paint (no flash) */
+    (function () {
+      try {
+        var t = localStorage.getItem('clinic_theme');
+        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { /* storage unavailable */ }
+    })();
+  </script>
+</head>
+<body class="login-page">
+
+  <div class="login-topbar" id="login-topbar"></div>
+
+  <div class="login-logo">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M1.25 3A1.75 1.75 0 0 1 3 1.25h10A1.75 1.75 0 0 1 14.75 3v7A1.75 1.75 0 0 1 13 11.75H7.5L4 14.75V11.75H3A1.75 1.75 0 0 1 1.25 10Z"/>
+      <path fill="none" stroke="var(--bg-subtle)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" d="M6.25 5.5 4.25 7.5l2 2M9.75 5.5l2 2-2 2"/>
+    </svg>
+    <h1 id="site-title">NUS Coding Clinic</h1>
+  </div>
+
+  <div class="login-card">
+
+    <!-- step 1: email ------------------------------------------------- -->
+    <form id="step-email" novalidate>
+      <h2>Sign in with your NUS email</h2>
+      <div class="field">
+        <label class="field-label" for="email">Email address</label>
+        <input class="input" id="email" name="email" type="email" autocomplete="email"
+               inputmode="email" spellcheck="false" placeholder="e0123456@u.nus.edu" required>
+        <p class="field-hint">We will email you a 6-digit sign-in code. It expires in 10 minutes.</p>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit" data-label="Send sign-in code">Send sign-in code</button>
+      <div class="form-error" id="error-email" hidden></div>
+      <div class="login-actions">
+        <button class="btn-invisible btn btn-sm" type="button" id="to-passcode">Use class passcode instead</button>
+      </div>
+    </form>
+
+    <!-- step 2: code -------------------------------------------------- -->
+    <form id="step-code" novalidate hidden>
+      <h2>Enter your sign-in code</h2>
+      <p class="field-hint mb-16">We sent a 6-digit code to <strong id="code-email" class="mono"></strong>.
+        Check your junk folder if it has not arrived.</p>
+      <div class="field">
+        <label class="field-label" for="code">6-digit code</label>
+        <input class="code-input" id="code" name="code" type="text" inputmode="numeric"
+               autocomplete="one-time-code" pattern="[0-9]*" maxlength="6"
+               placeholder="000000" required>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit" data-label="Verify and sign in">Verify and sign in</button>
+      <div class="form-error" id="error-code" hidden></div>
+      <div class="login-actions">
+        <button class="btn btn-invisible btn-sm" type="button" id="resend-code">Resend code</button>
+        <button class="btn btn-invisible btn-sm" type="button" id="change-email">Use a different email</button>
+      </div>
+    </form>
+
+    <!-- step 3: first-login display name ------------------------------ -->
+    <form id="step-name" novalidate hidden>
+      <h2>Pick a display name</h2>
+      <div class="field">
+        <label class="field-label" for="display-name">Display name</label>
+        <input class="input" id="display-name" name="display_name" type="text"
+               autocomplete="nickname" maxlength="40" placeholder="e.g. Jia Ling T." required>
+        <p class="field-hint">Pick a display name — it's what classmates see. You can post individual
+          questions anonymously regardless.</p>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit" data-label="Create my account">Create my account</button>
+      <div class="form-error" id="error-name" hidden></div>
+      <div class="login-actions">
+        <button class="btn btn-invisible btn-sm" type="button" id="name-back">Back</button>
+      </div>
+    </form>
+
+    <!-- alternative: class passcode ----------------------------------- -->
+    <form id="step-passcode" novalidate hidden>
+      <h2>Sign in with the class passcode</h2>
+      <div class="field">
+        <label class="field-label" for="pc-email">NUS email address</label>
+        <input class="input" id="pc-email" name="email" type="email" autocomplete="email"
+               inputmode="email" spellcheck="false" placeholder="e0123456@u.nus.edu" required>
+      </div>
+      <div class="field">
+        <label class="field-label" for="passcode">Class passcode</label>
+        <input class="input" id="passcode" name="passcode" type="text" autocomplete="off"
+               spellcheck="false" required>
+        <p class="field-hint">Your instructor shares this in class. It only works if passcode sign-in
+          has been switched on.</p>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit" data-label="Sign in">Sign in</button>
+      <div class="form-error" id="error-passcode" hidden></div>
+      <div class="login-actions">
+        <button class="btn btn-invisible btn-sm" type="button" id="to-email">Email me a code instead</button>
+      </div>
+    </form>
+
+    <!-- already signed in --------------------------------------------- -->
+    <div id="step-signed-in" hidden>
+      <h2>You are already signed in</h2>
+      <p class="field-hint mb-16">Signed in as <strong id="signed-in-name"></strong>.</p>
+      <button class="btn btn-primary btn-block" type="button" id="continue-btn">Continue</button>
+      <div class="login-actions">
+        <button class="btn btn-invisible btn-sm" type="button" id="sign-out-btn">Sign in as someone else</button>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="login-note" id="login-help">
+    Use your NUS email — <span class="mono">@u.nus.edu</span> or <span class="mono">@nus.edu.sg</span>.
+    The code is emailed from your instructor's NUS address, so add it to your contacts if your
+    mail client is fussy.
+  </p>
+
+  <div class="login-note is-mock" id="mock-note" hidden>
+    <strong>Demo mode.</strong> No backend is connected: sign in with any allowed NUS email and the
+    code <code>000000</code>. Nothing is emailed and nothing leaves this browser.
+  </div>
+
+  <div id="toasts"></div>
+
+  <script defer src="assets/js/config.js"></script>
+  <script defer src="assets/js/mock-data.js"></script>
+  <script defer src="assets/js/api.js"></script>
+  <script defer src="assets/js/ui.js"></script>
+  <script>
+  /* Inline scripts cannot be deferred, so wait for DOMContentLoaded — by then
+     every deferred script above has executed and window.Clinic is populated. */
+  document.addEventListener('DOMContentLoaded', function () {
+    'use strict';
+
+    var ui = (window.Clinic && window.Clinic.ui) || null;
+    var $ = function (id) { return document.getElementById(id); };
+
+    var state = { email: '', code: '', passcode: '', mode: 'code' };
+
+    var STEPS = ['step-email', 'step-code', 'step-name', 'step-passcode', 'step-signed-in'];
+
+    /* --- helpers ---------------------------------------------------- */
+
+    function normError(e) {
+      if (ui && ui.normaliseError) return ui.normaliseError(e);
+      if (!e) return { code: '', message: 'Something went wrong' };
+      if (typeof e === 'string') return { code: '', message: e };
+      return { code: e.code || '', message: e.message || e.error || 'Something went wrong', raw: e };
+    }
+
+    function call(action, data) {
+      if (ui && ui.apiCall) return ui.apiCall(action, data);
+      return Promise.reject({ code: 'network', message: 'The sign-in service is not available.' });
+    }
+
+    function showStep(id) {
+      STEPS.forEach(function (s) {
+        var node = $(s);
+        if (node) node.hidden = (s !== id);
+      });
+      clearErrors();
+      var first = $(id) && $(id).querySelector('input:not([type=hidden])');
+      if (first) { try { first.focus(); } catch (e) { /* ignore */ } }
+    }
+
+    function clearErrors() {
+      ['error-email', 'error-code', 'error-name', 'error-passcode'].forEach(function (id) {
+        var node = $(id);
+        if (node) { node.hidden = true; node.textContent = ''; }
+      });
+    }
+
+    function showError(id, message) {
+      var node = $(id);
+      if (!node) return;
+      node.textContent = '';
+      if (ui && ui.icon) node.appendChild(ui.icon('alert'));
+      node.appendChild(document.createTextNode(String(message || 'Something went wrong.')));
+      node.hidden = false;
+    }
+
+    function setBusy(form, busy) {
+      if (!form) return;
+      var btn = form.querySelector('button[type=submit]');
+      if (!btn) return;
+      btn.disabled = !!busy;
+      if (busy) {
+        btn.textContent = '';
+        var sp = document.createElement('span');
+        sp.className = 'spinner';
+        btn.appendChild(sp);
+        btn.appendChild(document.createTextNode(' Working…'));
+      } else {
+        btn.textContent = btn.getAttribute('data-label') || 'Continue';
+      }
+      Array.prototype.forEach.call(form.querySelectorAll('input'), function (i) {
+        i.disabled = !!busy;
+      });
+    }
+
+    function validEmail(value) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+    }
+
+    function needsDisplayName(err) {
+      var blob = [err.code, err.message,
+        err.raw && err.raw.error, err.raw && err.raw.data && err.raw.data.error]
+        .filter(Boolean).join(' ').toLowerCase();
+      return blob.indexOf('display_name') !== -1;
+    }
+
+    /* ?next= — only same-origin relative paths, never an open redirect */
+    function safeNext() {
+      var next = '';
+      try { next = new URLSearchParams(location.search).get('next') || ''; } catch (e) { next = ''; }
+      next = String(next).trim();
+      if (!next) return 'index.html';
+      if (/^[a-z][a-z0-9+.-]*:/i.test(next)) return 'index.html';   /* has a scheme */
+      if (next.slice(0, 2) === '//') return 'index.html';           /* protocol-relative */
+      if (next.indexOf('\\') !== -1 || next.indexOf('..') !== -1) return 'index.html';
+      if (!/^[A-Za-z0-9._~\-\/?#&=%+]+$/.test(next)) return 'index.html';
+      return next;
+    }
+
+    function onAuthSuccess(data) {
+      data = data || {};
+      /* api.js persists the session itself; this is a belt-and-braces fallback */
+      try {
+        if (data.token) localStorage.setItem('clinic_token', data.token);
+        if (data.user) localStorage.setItem('clinic_user', JSON.stringify(data.user));
+      } catch (e) { /* storage unavailable */ }
+      location.replace(safeNext());
+    }
+
+    function verify(displayName) {
+      var action = state.mode === 'passcode' ? 'auth.passcode' : 'auth.verify';
+      var data = state.mode === 'passcode'
+        ? { email: state.email, passcode: state.passcode }
+        : { email: state.email, code: state.code };
+      if (displayName) data.display_name = displayName;
+
+      var form = displayName ? $('step-name')
+        : (state.mode === 'passcode' ? $('step-passcode') : $('step-code'));
+      var errorBox = displayName ? 'error-name'
+        : (state.mode === 'passcode' ? 'error-passcode' : 'error-code');
+
+      setBusy(form, true);
+      return call(action, data).then(function (res) {
+        setBusy(form, false);
+        onAuthSuccess(res);
+      }, function (raw) {
+        setBusy(form, false);
+        var err = normError(raw);
+        if (needsDisplayName(err)) {
+          showStep('step-name');
+          return;
+        }
+        showError(errorBox, err.message);
+      });
+    }
+
+    /* --- wiring ----------------------------------------------------- */
+
+    if (ui && ui.mountThemeToggle) ui.mountThemeToggle($('login-topbar'));
+    if (ui && ui.siteTitle) {
+      var title = ui.siteTitle();
+      $('site-title').textContent = title;
+      document.title = 'Sign in · ' + title;
+    }
+
+    var mock = !!(ui && ui.isMock && ui.isMock());
+    if (mock) {
+      $('mock-note').hidden = false;
+      $('code').value = '000000';
+    }
+
+    $('step-email').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      clearErrors();
+      var value = $('email').value.trim();
+      if (!validEmail(value)) {
+        showError('error-email', 'Enter a valid email address.');
+        return;
+      }
+      state.email = value;
+      state.mode = 'code';
+      setBusy($('step-email'), true);
+      call('auth.request_code', { email: value }).then(function () {
+        setBusy($('step-email'), false);
+        $('code-email').textContent = value;
+        showStep('step-code');
+        if (mock) $('code').value = '000000';
+        if (ui && ui.toast) ui.toast('Sign-in code sent to ' + value, 'success');
+      }, function (raw) {
+        setBusy($('step-email'), false);
+        showError('error-email', normError(raw).message);
+      });
+    });
+
+    $('step-code').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      clearErrors();
+      var value = $('code').value.replace(/\s+/g, '');
+      if (!/^\d{6}$/.test(value)) {
+        showError('error-code', 'The code is six digits.');
+        return;
+      }
+      state.code = value;
+      state.mode = 'code';
+      verify(null);
+    });
+
+    $('step-name').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      clearErrors();
+      var value = $('display-name').value.trim();
+      if (value.length < 2) {
+        showError('error-name', 'Enter a display name of at least two characters.');
+        return;
+      }
+      verify(value);
+    });
+
+    $('step-passcode').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      clearErrors();
+      var email = $('pc-email').value.trim();
+      var pc = $('passcode').value.trim();
+      if (!validEmail(email)) { showError('error-passcode', 'Enter a valid email address.'); return; }
+      if (!pc) { showError('error-passcode', 'Enter the class passcode.'); return; }
+      state.email = email;
+      state.passcode = pc;
+      state.mode = 'passcode';
+      verify(null);
+    });
+
+    $('to-passcode').addEventListener('click', function () {
+      if (state.email) $('pc-email').value = state.email;
+      else $('pc-email').value = $('email').value.trim();
+      showStep('step-passcode');
+    });
+
+    $('to-email').addEventListener('click', function () {
+      state.mode = 'code';
+      showStep('step-email');
+    });
+
+    $('change-email').addEventListener('click', function () {
+      state.mode = 'code';
+      state.code = '';
+      showStep('step-email');
+    });
+
+    $('name-back').addEventListener('click', function () {
+      showStep(state.mode === 'passcode' ? 'step-passcode' : 'step-code');
+    });
+
+    $('resend-code').addEventListener('click', function () {
+      if (!state.email) { showStep('step-email'); return; }
+      clearErrors();
+      var btn = $('resend-code');
+      btn.disabled = true;
+      call('auth.request_code', { email: state.email }).then(function () {
+        btn.disabled = false;
+        if (ui && ui.toast) ui.toast('A new code is on its way.', 'success');
+      }, function (raw) {
+        btn.disabled = false;
+        showError('error-code', normError(raw).message);
+      });
+    });
+
+    $('continue-btn').addEventListener('click', function () {
+      location.replace(safeNext());
+    });
+
+    $('sign-out-btn').addEventListener('click', function () {
+      try {
+        localStorage.removeItem('clinic_token');
+        localStorage.removeItem('clinic_user');
+      } catch (e) { /* ignore */ }
+      showStep('step-email');
+    });
+
+    /* --- initial step ------------------------------------------------ */
+
+    var token = null;
+    try { token = localStorage.getItem('clinic_token'); } catch (e) { token = null; }
+    if (token) {
+      var who = (ui && ui.currentUser && ui.currentUser()) || null;
+      $('signed-in-name').textContent = (who && who.display_name) || 'this browser';
+      showStep('step-signed-in');
+    } else {
+      showStep('step-email');
+    }
+  });
+  </script>
+</body>
+</html>

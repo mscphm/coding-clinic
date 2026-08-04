@@ -1,0 +1,51 @@
+NUS Coding Clinic — third-party front-end libraries
+====================================================
+
+These three files are vendored (committed to the repo) on purpose: the site must work
+from GitHub Pages with no build step, no npm, and no runtime CDN dependency. Nothing
+here phones home.
+
+Fetched: 2026-08-03
+Fetched by: agent A4 (api layer)
+
+-----------------------------------------------------------------------------------
+File              Library        Version   Size      Licence          Source URL
+-----------------------------------------------------------------------------------
+marked.min.js     marked         12.0.2    35,479 B  MIT              https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js
+purify.min.js     DOMPurify       3.1.6    21,496 B  Apache-2.0/MPL   https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js
+highlight.min.js  highlight.js   11.9.0   121,727 B  BSD-3-Clause     https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js
+-----------------------------------------------------------------------------------
+
+highlight.js build
+------------------
+This is the official "common" CDN bundle (cdn-release build/highlight.min.js), which
+registers 36 grammars. Verified present in this exact file:
+
+  bash, c, cpp, csharp, css, diff, go, graphql, ini, java, javascript, json, kotlin,
+  less, lua, makefile, markdown, objectivec, perl, php, php-template, plaintext,
+  python, python-repl, r, ruby, rust, scss, shell, sql, swift, typescript, vbnet,
+  wasm, xml, yaml
+
+The three that matter for this course — python, bash, json — are all in. So are r, sql,
+markdown, yaml and diff, which covers everything students are likely to paste.
+
+No highlight.js theme CSS is vendored. The `.hljs-*` token classes are styled by
+site/assets/css/main.css (agent A1) so that code blocks follow the site's light/dark
+theme toggle instead of shipping two extra stylesheets.
+
+Upgrading
+---------
+Replace the file with the same-named build from the same CDN path at a newer version,
+then update the version + size above. Check afterwards that:
+  * marked      — still exposes a global `marked` with `.parse(md, {gfm, breaks})`
+  * DOMPurify   — still exposes a global `DOMPurify` with `.sanitize()` and `.addHook()`
+  * highlight.js— still exposes a global `hljs` with `.highlightElement()`, and still
+                  includes python/bash/json (open the file and search for `grmr_python`)
+assets/js/markdown.js degrades to plain escaped <pre> text if any of the three globals
+is missing, so a bad upgrade cannot white-screen the site — it just loses formatting.
+
+Mirrors, in the order they were tried
+-------------------------------------
+1. https://cdn.jsdelivr.net/...   <- all three came from here
+2. https://cdnjs.cloudflare.com/...
+3. https://unpkg.com/...
