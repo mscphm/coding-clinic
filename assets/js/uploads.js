@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic — uploads.js
+ * MScPHMxAI Coding Clinic — uploads.js
  * Screenshot paste / drop / pick, for the thread composer and the DM composer
  * (v3 §10.4, deliverable D11).
  *

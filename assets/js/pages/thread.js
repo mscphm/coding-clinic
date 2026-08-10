@@ -1701,7 +1701,7 @@
     var t = model.thread;
     clear(root);
 
-    document.title = (t.title || 'Discussion') + ' · NUS Coding Clinic';
+    document.title = (t.title || 'Discussion') + ' · MScPHMxAI Coding Clinic';
 
     root.appendChild(threadHeader());
 

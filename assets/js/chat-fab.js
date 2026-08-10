@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic — chat-fab.js   (owner: F9)
+ * MScPHMxAI Coding Clinic — chat-fab.js   (owner: F9)
  * The floating "open Messages" button, bottom-right, on every content page.
  *
  *   Clinic.fab.mount()      idempotent; re-runs the gate and builds the button

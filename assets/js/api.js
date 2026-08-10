@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic — api.js
+ * MScPHMxAI Coding Clinic — api.js
  * The ONLY file in the site that is allowed to call fetch(). See SPEC.md §5.
  *
  * Public surface (everything hangs off window.Clinic.api):

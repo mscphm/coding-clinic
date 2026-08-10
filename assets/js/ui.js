@@ -1,5 +1,5 @@
 /* =========================================================================
-   NUS Coding Clinic — ui.js   (owner: agent A1)
+   MScPHMxAI Coding Clinic — ui.js   (owner: agent A1)
    Shared chrome + helpers. Everything hangs off window.Clinic.ui.
    Vanilla ES2018, loaded with <script defer>. No fetch() in here — all
    network access goes through Clinic.api (agent A4).
@@ -574,7 +574,7 @@
 
   function siteTitle() {
     var t = bootstrapConfig().site_title;
-    return t ? String(t) : 'NUS Coding Clinic';
+    return t ? String(t) : 'MScPHMxAI Coding Clinic';
   }
 
   /* Compatibility shim over Clinic.api.

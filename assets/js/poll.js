@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic — poll.js   (owner: F4)
+ * MScPHMxAI Coding Clinic — poll.js   (owner: F4)
  * The ONE polling primitive for the whole site. Contract §10.2.
  *
  *   Clinic.poll.create(opts) -> poller

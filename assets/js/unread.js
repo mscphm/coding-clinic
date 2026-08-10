@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic — unread.js   (owner: F4)
+ * MScPHMxAI Coding Clinic — unread.js   (owner: F4)
  * The nav unread badge. Contract §10.3.
  *
  *   Clinic.unread.start()                    one probe, then event-driven only

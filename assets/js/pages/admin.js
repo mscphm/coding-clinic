@@ -1,4 +1,4 @@
-/* NUS Coding Clinic — admin.html (agent A3)
+/* MScPHMxAI Coding Clinic — admin.html (agent A3)
    Instructor dashboard: Overview, Threads, Bookings, Slots, Export (SPEC §8).
 
    Single data source: Clinic.api.call('admin.export', {}) on load + Refresh.

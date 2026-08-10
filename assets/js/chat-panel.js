@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic — chat-panel.js   (owner: F9, with chat-fab.js)
+ * MScPHMxAI Coding Clinic — chat-panel.js   (owner: F9, with chat-fab.js)
  * The chat popover the floating button opens, so reading a thread and answering
  * a DM stop being two different pages.
  *

@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic — messages.html   (owner: F4)
+ * MScPHMxAI Coding Clinic — messages.html   (owner: F4)
  * Direct messages between a student and the instructor. Contract §10.7, §10.8,
  * §10.9; D1.
  *

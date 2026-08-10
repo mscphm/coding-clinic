@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic — config.js
+ * MScPHMxAI Coding Clinic — config.js
  * -----------------------------------------------------------------------------
  * THIS IS THE ONLY FILE YOU NEED TO EDIT TO GO LIVE.
  *

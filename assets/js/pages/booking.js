@@ -1,4 +1,4 @@
-/* NUS Coding Clinic — booking.html (agent A3)
+/* MScPHMxAI Coding Clinic — booking.html (agent A3)
    Slot grid, booking form, my-booking card.  SPEC §8 (booking.html) and §9.
 
    No fetch() here: every call goes through Clinic.api.call(action, data).

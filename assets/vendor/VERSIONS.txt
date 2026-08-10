@@ -1,4 +1,4 @@
-NUS Coding Clinic — third-party front-end libraries
+MScPHMxAI Coding Clinic — third-party front-end libraries
 ====================================================
 
 These files are vendored (committed to the repo) on purpose: the site must work

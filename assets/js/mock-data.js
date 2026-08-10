@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic - mock-data.js
+ * MScPHMxAI Coding Clinic - mock-data.js
  * A complete in-browser implementation of the API contract (SPEC.md §5) so the
  * whole site can be demonstrated with MOCK:true and no backend at all.
  *
@@ -298,8 +298,12 @@
 
   function seedConfig() {
     return {
-      site_title: 'NUS Coding Clinic',
+      site_title: 'MScPHMxAI Coding Clinic',
       allowed_domains: 'u.nus.edu,nus.edu.sg',
+      /* Whole-address allowlist. allowed_domains can only admit a whole
+         domain, so one gmail account needs its own key. MOCK accepts any
+         address regardless — this is here for parity with the workbook. */
+      allowed_emails: 'xavierchee@gmail.com',
       admin_emails: 'xavierchee@gmail.com',
       passcode_mode: 'FALSE',
       class_passcode: '',

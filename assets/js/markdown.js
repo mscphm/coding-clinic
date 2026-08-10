@@ -1,5 +1,5 @@
 /*!
- * NUS Coding Clinic — markdown.js
+ * MScPHMxAI Coding Clinic — markdown.js
  * The single sanctioned path from user-written markdown to the DOM (SPEC.md §3).
  *
  *   marked (GFM) -> DOMPurify -> [img src rewrite] -> highlight.js -> copy buttons

@@ -1,4 +1,4 @@
-/* NUS Coding Clinic — profile.html
+/* MScPHMxAI Coding Clinic — profile.html
    Student profile: display name, contact details, proficiency self-rating.
    SPEC §4 ("v2 addition — student profiles"), §5 (profile.update / the
    user object "v2 addition"), §7 (design system), §8 (page conventions).
