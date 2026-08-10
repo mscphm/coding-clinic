@@ -51,6 +51,8 @@
  *   clinic_token           session token string
  *   clinic_user            JSON of the user object
  *   clinic_token_expires   ISO timestamp, used to expire the session client-side
+ *   clinic_token_issued    epoch ms the token was stored, read only by the
+ *                          ripening retry in dispatch() — see the note there
  *   clinic_bootstrap       JSON cache of meta.bootstrap
  *   clinic_threads         JSON cache of threads.list, {uid, at, data} — see the
  *                          note on threadsList() for why it is per-user and
@@ -65,6 +67,7 @@
   var K_TOKEN = 'clinic_token';
   var K_USER = 'clinic_user';
   var K_EXPIRES = 'clinic_token_expires';
+  var K_ISSUED = 'clinic_token_issued';
   var K_BOOT = 'clinic_bootstrap';
   var K_THREADS = 'clinic_threads';
 
@@ -185,7 +188,10 @@
   }
 
   function setSession(token, user, expiresAt) {
-    if (token) lsSet(K_TOKEN, token);
+    /* The issue stamp is written with the token and only with the token: it is
+       the clock the ripening retry measures against, and a token whose age we
+       cannot establish must fall straight through to the old behaviour. */
+    if (token) { lsSet(K_TOKEN, token); lsSet(K_ISSUED, String(Date.now())); }
     if (user) writeJSON(K_USER, user);
     if (expiresAt) lsSet(K_EXPIRES, expiresAt); else lsDel(K_EXPIRES);
   }
@@ -194,6 +200,7 @@
     lsDel(K_TOKEN);
     lsDel(K_USER);
     lsDel(K_EXPIRES);
+    lsDel(K_ISSUED);
     lsDel(K_BOOT);
     /* The cached board goes with the session. It is namespaced by uid anyway, so
        leaving it would be safe — but on a shared lab machine "signed out" has to
@@ -401,7 +408,70 @@
     return out;
   }
 
-  function dispatch(action, data) {
+  /* ------------------------------------------------ the ripening window ----
+     THE LOGIN LOOP THIS EXISTS TO BREAK (2026-08-10, browser-confirmed).
+
+     auth.verify writes the tbl_Sessions row and returns the token in the SAME
+     run. login.html stores it and loads index.html, which asks meta.bootstrap
+     about a second later. The app flow looks that token up in the workbook —
+     and a write to this workbook takes up to ~30 s to become readable, the
+     gotcha that governs the whole project. It finds no row, so auth_ok is 'no'
+     and it answers `unauthorized`. We then did the one thing that makes this
+     unrecoverable: cleared the session and bounced to login.html, which has no
+     token and therefore shows the email step. Sign in again, same thing.
+
+     Every attempt destroyed its own credential a few seconds before that
+     credential became readable, so the loop never converged, at any typing
+     speed, and showed no error — the whole failure looked like "the passcode
+     screen keeps sending me back to the email screen".
+
+     A token this young failing to resolve is not evidence that it is invalid;
+     it is evidence that we asked too early. So while it is young we wait and
+     ask again instead of destroying it. Once it is older than the write can
+     possibly be late, `unauthorized` means what it always meant.
+
+     WHY THE WAITS ARE STEPPED, NOT ONE LONG SLEEP
+     The row is usually readable well inside 30 s, so stepping recovers in a
+     few seconds in the common case rather than parking every first-time
+     sign-in behind a full-length spinner. Cost is bounded and rare: sign-in
+     puts two authenticated calls in flight (meta.bootstrap, threads.list), so
+     the worst case is 2 x 4 = 8 extra flow runs ONCE per sign-in — nothing
+     against the daily allocation the contract's R22 arithmetic is protecting,
+     and unlike a poller it cannot repeat. Contract §8.3 rule 5 keeps recurring
+     work in Clinic.poll; these are one-shot timers on a single call chain, so
+     they belong here.
+
+     DELIBERATELY NOT COVERED: a token minted before this code shipped carries
+     no stamp, so tokenAgeMs() reports Infinity and the old behaviour stands.
+     That is the safe direction to fail. */
+  var RIPEN_MS = 60000;                             /* ~30 s lag plus headroom */
+  var RIPEN_WAITS = [2000, 4000, 9000, 20000];      /* ≈35 s of retries, then stop */
+
+  function tokenAgeMs() {
+    var raw = lsGet(K_ISSUED);
+    if (!raw) return Infinity;
+    var t = parseInt(raw, 10);
+    if (isNaN(t)) return Infinity;
+    var age = Date.now() - t;
+    return age < 0 ? Infinity : age;   /* clock moved backwards; do not trust it */
+  }
+
+  /* Young enough that "not found" is more likely to mean "not yet" than "no".
+     Never in demo mode: mock-data.js answers from memory, so there is no write
+     to be late, and an `unauthorized` there is a real one (a token left behind
+     by a mock reset). Retrying it would park the demo behind a 35 s stall
+     instead of bouncing cleanly to the login page. */
+  function withinRipeningWindow(attempt) {
+    return !isMock() && attempt < RIPEN_WAITS.length &&
+      !!getToken() && tokenAgeMs() < RIPEN_MS;
+  }
+
+  function delay(ms) {
+    return new Promise(function (resolve) { window.setTimeout(resolve, ms); });
+  }
+
+  function dispatch(action, data, attempt) {
+    attempt = attempt || 0;
     var token = getToken();
     var envelope = { action: action, data: data || {} };
     if (token && action.indexOf('auth.') !== 0) envelope.token = token;
@@ -415,6 +485,11 @@
     }, function (raw) {
       var err = toApiError(raw);
       if (err.code === 'unauthorized') {
+        if (withinRipeningWindow(attempt)) {
+          return delay(RIPEN_WAITS[attempt]).then(function () {
+            return dispatch(action, data, attempt + 1);
+          });
+        }
         clearSession();
         bounceToLogin();
       }
