@@ -116,12 +116,6 @@
 
   </div>
 
-  <p class="login-note" id="login-help">
-    Use your NUS email — <span class="mono">@u.nus.edu</span> or <span class="mono">@nus.edu.sg</span>.
-    The code is emailed from your instructor's NUS address, so add it to your contacts if your
-    mail client is fussy.
-  </p>
-
   <div class="login-note is-mock" id="mock-note" hidden>
     <strong>Demo mode.</strong> No backend is connected: sign in with any allowed NUS email and the
     code <code>000000</code>. Nothing is emailed and nothing leaves this browser.
@@ -142,7 +136,8 @@
     var ui = (window.Clinic && window.Clinic.ui) || null;
     var $ = function (id) { return document.getElementById(id); };
 
-    var state = { email: '', code: '', passcode: '', mode: 'code' };
+    var state = { email: '', code: '', passcode: '', mode: 'code',
+                  codeSentAt: 0, lagRetried: false };
 
     var STEPS = ['step-email', 'step-code', 'step-name', 'step-passcode', 'step-signed-in'];
 
@@ -239,6 +234,39 @@
       location.replace(safeNext());
     }
 
+    /* --- the workbook write-visibility window -------------------------------
+       auth.request_code adds the code row and emails it in the SAME run, but a
+       write to this workbook takes up to ~30 s to become readable (the gotcha
+       that governs the whole project). The email arrives in seconds. So a
+       student who reads it and types six digits straight away reaches an
+       auth.verify whose list_codes cannot see the row yet — f_code comes back
+       empty and the flow answers "That code is not valid, has expired, or has
+       already been used", which is three things it is not.
+
+       There is nothing to fix in the flow for this and nothing the student did
+       wrong, so: one automatic retry, timed to land after the write must have
+       become visible. Only for the emailed-code path — auth.passcode reads no
+       such row and can never be in this state.
+
+       A single setTimeout, never an interval: contract §8.3 rule 5 keeps all
+       recurring work in Clinic.poll, and §8.4 deliberately does not load
+       poll.js on this page. One shot, one timer, cleared by navigating away. */
+    var LAG_MS = 45000;           /* the ~30 s lag plus headroom */
+    var LAG_MIN_WAIT_MS = 6000;   /* never retry so fast it cannot have helped */
+
+    function withinLagWindow() {
+      return state.mode === 'code' && state.codeSentAt > 0 &&
+        (Date.now() - state.codeSentAt) < LAG_MS;
+    }
+
+    /* Transient status, not an error: the toast stack is already the site's
+       channel for this and carries role="status", so nothing new is needed in
+       the §9 CSS registry. Held open for the length of the wait. */
+    function showWaiting(message, ms) {
+      if (ui && ui.toast) { ui.toast(message, '', ms); return true; }
+      return false;
+    }
+
     function verify(displayName) {
       var action = state.mode === 'passcode' ? 'auth.passcode' : 'auth.verify';
       var data = state.mode === 'passcode'
@@ -260,6 +288,22 @@
         var err = normError(raw);
         if (needsDisplayName(err)) {
           showStep('step-name');
+          return;
+        }
+        /* A code the workbook has not published yet is indistinguishable from a
+           wrong one — same code, same message. Retry once before blaming the
+           person typing. See the LAG_MS note above. */
+        if (err.code === 'bad_request' && !state.lagRetried && withinLagWindow()) {
+          state.lagRetried = true;
+          var waitMs = Math.max(LAG_MIN_WAIT_MS, LAG_MS - (Date.now() - state.codeSentAt));
+          var secs = Math.round(waitMs / 1000);
+          setBusy(form, true);
+          if (!showWaiting('Your code was only just issued — checking again in ' +
+                secs + ' seconds.', waitMs + 1500)) {
+            showError(errorBox, 'Your code was only just issued. Checking again in ' +
+              secs + ' seconds…');
+          }
+          window.setTimeout(function () { verify(displayName); }, waitMs);
           return;
         }
         showError(errorBox, err.message);
@@ -294,6 +338,10 @@
       setBusy($('step-email'), true);
       call('auth.request_code', { email: value }).then(function () {
         setBusy($('step-email'), false);
+        /* Stamped from the RESPONSE, not the request: the run adds the row and
+           then mails it, so the visibility clock starts nearer to this moment. */
+        state.codeSentAt = Date.now();
+        state.lagRetried = false;
         $('code-email').textContent = value;
         showStep('step-code');
         if (mock) $('code').value = '000000';
@@ -369,6 +417,8 @@
       btn.disabled = true;
       call('auth.request_code', { email: state.email }).then(function () {
         btn.disabled = false;
+        state.codeSentAt = Date.now();
+        state.lagRetried = false;
         if (ui && ui.toast) ui.toast('A new code is on its way.', 'success');
       }, function (raw) {
         btn.disabled = false;

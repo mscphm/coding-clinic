@@ -1,17 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
 /* =========================================================================
    NUS Coding Clinic — main.css
    Owner: agent A1. Complete design system for every page (SPEC §7).
 
-   Faithful GitHub / Primer look: GitHub's greys + blues + greens, 6px radii,
-   system font stack, Primer-like density, 14px UI text / 16px markdown body.
+   VISUAL LANGUAGE — matches the NUS bridging course Python modules
+   (bridging_course_python/system_py/*.html). Tokens were lifted from those
+   builds so the two systems read as one course:
+
+     NUS navy   #003D7C   headings, links, primary chrome
+     NUS orange #FF6B35 → #ff8555   accents, active state, primary buttons
+     NUS red    #D32F2F   destructive
+     text #2c3e50 · muted #5a6c7d · subtle #94a3b8
+     Inter 300–800 at line-height 1.7 · JetBrains Mono for code
+     white cards, radius 10–20px, shadow 0 8px 32px rgba(0,61,124,.10)
+     list rows shift translateX(3px) on hover behind a 3px orange left border
+
+   The GitHub/Primer look this file used to carry is gone, but every CLASS
+   NAME below is unchanged — page agents write markup against these names and
+   ui.js sets --pill-h / --av-h inline, so the contract still holds. Token
+   NAMES are also unchanged (--accent, --success, …); only their VALUES moved.
 
    THEMING
      Default follows prefers-color-scheme. Manual override:
        document.documentElement.setAttribute('data-theme', 'dark' | 'light')
      (ui.js persists the choice in localStorage key `clinic_theme`.)
-     The dark palette is written TWICE on purpose — once for
-     html[data-theme="dark"] and once inside the prefers-color-scheme query
-     for html:not([data-theme="light"]). Keep the two blocks in sync.
+     The bridging course is light-only; the dark palette here is an original
+     navy-tinted companion, kept because ui.js ships a theme toggle and every
+     page has a pre-paint theme script. It is written TWICE on purpose — once
+     for html[data-theme="dark"] and once inside the prefers-color-scheme
+     query for html:not([data-theme="light"]). Keep the two blocks in sync.
 
    CLASS INDEX (all names below are contracts — page agents write markup
    against them; extra helper classes are marked "extra, optional")
@@ -52,6 +70,50 @@
                     extra: .login-page .login-topbar .login-steps
      Utilities .... .muted .subtle .mono .nowrap .truncate .hidden .sr-only
                     .row .col .gap-* .grow .text-right .mt-* .mb-* .divider
+
+   CLASS INDEX — v3 additions (contract §9; sections 18-23 below, responsive
+   renumbered to §24 so it stays last in source order)
+     Roles ........ .badge-instructor .badge-instructor-replied
+     Endorsement .. .comment-endorsed .endorse-strip .endorse-btn(.is-endorsed)
+     Thread state . .thread-banner(.-locked .-duplicate .-archived)
+                    .badge-locked .badge-duplicate .thread-row.is-archived
+                    .archive-banner .composer.is-disabled .composer-locked-note
+     Degradation .. .inert-note .inert-note-title
+     Unread ....... .counter.nav-counter .app-nav-label .unread-dot .is-unread
+     Messages ..... .msg-layout .msg-pane-list .msg-pane-thread .msg-conv-list
+                    .msg-conv-item(.is-active .is-unread) .msg-conv-name
+                    .msg-conv-preview .msg-conv-time .msg-header .msg-back
+                    .msg-log .msg-day-sep .msg-poll-stalled .msg-privacy-note
+                    .msg-bubble(.is-mine .is-theirs .is-pending .is-failed)
+                    .msg-bubble-meta .msg-retry .msg-composer
+                    extra: .msg-conv-body .msg-peer-name
+                           .msg-layout.is-thread-open (mobile pane switch)
+     Search ....... .search-bar .search-filters(.is-collapsed)
+                    .search-filter-group .search-filter-label
+                    .search-filters-toggle .search-summary .search-results
+                    .search-result .search-result-snippet .search-hit
+                    .search-chip-clear
+     Composer+ .... .similar-panel(.is-loading) .similar-title .similar-list
+                    .similar-item(.is-answered) .similar-icon .similar-meta
+                    .similar-dismiss .template-bar .template-hint
+                    .template-reset .upload-tray .upload-item(.is-error)
+                    .upload-thumb .upload-progress .upload-progress-fill
+                    .upload-error .upload-remove .upload-dropzone.is-dragover
+                    .upload-note .clinic-att(.is-loading .is-error)
+                    .ext-img-blocked   extra: .clinic-att-caption
+     Math ......... .katex-inline .katex-block .katex-error
+
+   CLASS INDEX — v3.1 additions (§25 FAB, §26 chat panel; both after §24, which
+   is fine because neither is a responsive override — §24 only has to come after
+   the rules it overrides, and it overrides none of these)
+     FAB .......... .chat-fab(.is-dragging .is-snapping .is-unplaced .has-unread)
+                    .chat-fab-icon .chat-fab-badge
+                    body.has-chat-fab(.chat-fab-left .chat-fab-right)
+     Chat panel ... .chat-panel(.is-open) .chat-panel-head .chat-panel-title
+                    .chat-panel-full .chat-panel-back .chat-panel-close
+                    .chat-panel-body .chat-panel-foot .chat-panel-cadence
+                    body.has-chat-panel
+                    reuses §20's .msg-* wholesale — see the note on §26
    ========================================================================= */
 
 
@@ -61,62 +123,92 @@
 
 :root {
   /* --- shape + type (theme independent) --- */
-  --radius: 6px;
-  --radius-lg: 12px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --radius-card: 20px;
   --radius-pill: 2em;
-  --header-height: 60px;
-  --sidebar-width: 296px;
-  --content-max: 1216px;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
-    Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+  --header-height: 68px;
+  --sidebar-width: 280px;
+  --content-max: 1320px;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji";
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
     "Liberation Mono", monospace;
 
-  /* --- LIGHT palette (GitHub light) --- */
+  /* --- NUS brand constants (identical in both themes) --- */
+  --nus-navy: #003D7C;
+  --nus-navy-lift: #0052a3;
+  --nus-orange: #FF6B35;
+  --nus-orange-lift: #ff8555;
+  --nus-red: #D32F2F;
+  --grad-orange: linear-gradient(135deg, #FF6B35 0%, #ff8555 100%);
+  --grad-navy: linear-gradient(135deg, #003D7C 0%, #0052a3 100%);
+  --grad-progress: linear-gradient(90deg, #003D7C 0%, #FF6B35 100%);
+
+  /* --- LIGHT palette --- */
   color-scheme: light;
   --bg-canvas: #ffffff;
-  --bg-subtle: #f6f8fa;
-  --bg-inset: #f6f8fa;
+  --bg-subtle: #f8fafc;
+  --bg-inset: #f8fafc;
   --bg-overlay: #ffffff;
-  --bg-header: #f6f8fa;
-  --fg-default: #1f2328;
-  --fg-muted: #59636e;
-  --fg-subtle: #6e7781;
+  --bg-header: rgba(255, 255, 255, 0.97);
+  --bg-page: #ffffff;
+  --fg-default: #2c3e50;
+  --fg-heading: #003D7C;
+  --fg-muted: #5a6c7d;
+  --fg-subtle: #94a3b8;
   --fg-on-emphasis: #ffffff;
-  --border-default: #d0d7de;
-  --border-muted: #d8dee4;
-  --accent: #0969da;
-  --accent-emphasis: #0969da;
-  --accent-subtle: #ddf4ff;
-  --success: #1a7f37;
-  --success-emphasis: #1f883d;
-  --success-subtle: #dafbe1;
-  --attention: #9a6700;
-  --attention-emphasis: #bf8700;
-  --attention-subtle: #fff8c5;
-  --danger: #cf222e;
-  --danger-emphasis: #cf222e;
-  --danger-subtle: #ffebe9;
-  --done: #8250df;                       /* purple — open discussion icon */
-  --done-subtle: #fbefff;
-  --neutral-muted: rgba(175, 184, 193, 0.2);
-  --focus-ring: rgba(9, 105, 218, 0.3);
-  --underline-active: #fd8c73;
-  --btn-fg: #1f2328;
-  --btn-bg: #f6f8fa;
-  --btn-hover-bg: #eff2f5;
-  --btn-active-bg: #e6eaef;
-  --btn-border: rgba(31, 35, 40, 0.15);
-  --btn-primary-bg: #1f883d;
-  --btn-primary-hover-bg: #1a7f37;
-  --btn-primary-border: rgba(31, 35, 40, 0.15);
-  --btn-danger-hover-bg: #a40e26;
-  --shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
-  --shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
-  --shadow-lg: 0 8px 24px rgba(140, 149, 159, 0.2);
-  --overlay-backdrop: rgba(31, 35, 40, 0.5);
+  --border-default: rgba(0, 61, 124, 0.16);
+  --border-muted: rgba(0, 61, 124, 0.08);
+  --accent: #003D7C;
+  --accent-emphasis: #003D7C;
+  --accent-subtle: rgba(0, 61, 124, 0.08);
+  --accent-hover: #FF6B35;
+  --success: #2ea36b;
+  --success-emphasis: #2ea36b;
+  --success-subtle: rgba(46, 163, 107, 0.10);
+/* --attention is TEXT on --attention-subtle in five places (.thread-banner-locked,
+   .badge-locked, .msg-poll-stalled, .archive-banner strong, .badge-top-contrib).
+   rgba(232,163,61,0.12) composites over white to #FCF4E8, and the old #c77700
+   measured 3.17:1 on that — below WCAG AA's 4.5:1, and none of those five is
+   "large text". #9A5D00 measures 4.87:1 on the same composited background and
+   still reads as amber. DO NOT lighten it back without re-running the contrast
+   probe over all five selectors. --attention-emphasis is border/fill only and is
+   deliberately left bright; the dark block at :231 already passes at 6.82:1. */
+  --attention: #9A5D00;
+  --attention-emphasis: #e8a33d;
+  --attention-subtle: rgba(232, 163, 61, 0.12);
+  --danger: #D32F2F;
+  --danger-emphasis: #D32F2F;
+  --danger-subtle: rgba(211, 47, 47, 0.08);
+  --done: #003D7C;                       /* open discussion icon */
+  --done-subtle: rgba(0, 61, 124, 0.08);
+  --neutral-muted: rgba(0, 61, 124, 0.07);
+  --focus-ring: rgba(255, 107, 53, 0.20);
+  --underline-active: #FF6B35;
+  --btn-fg: #003D7C;
+  --btn-bg: #ffffff;
+  --btn-hover-bg: rgba(0, 61, 124, 0.06);
+  --btn-active-bg: rgba(0, 61, 124, 0.11);
+  --btn-border: rgba(0, 61, 124, 0.25);
+  --btn-primary-bg: #FF6B35;
+  --btn-primary-hover-bg: #f4571d;
+  --btn-primary-border: transparent;
+  --btn-danger-hover-bg: #D32F2F;
+  --shadow-sm: 0 1px 3px rgba(0, 61, 124, 0.05);
+  --shadow-md: 0 4px 14px rgba(0, 61, 124, 0.08);
+  --shadow-lg: 0 8px 32px rgba(0, 61, 124, 0.10);
+  --shadow-card: 0 10px 40px rgba(0, 61, 124, 0.10);
+  --shadow-orange: 0 4px 14px rgba(255, 107, 53, 0.25);
+  --shadow-orange-lift: 0 8px 22px rgba(255, 107, 53, 0.35);
+  --overlay-backdrop: rgba(15, 23, 42, 0.72);
 
-  /* --- syntax highlighting (github light) --- */
+  /* page tint field (body::before) */
+  --tint-navy: rgba(0, 61, 124, 0.04);
+  --tint-orange: rgba(255, 107, 53, 0.04);
+  --tint-navy-2: rgba(0, 61, 124, 0.03);
+
+  /* --- syntax highlighting (github light — reads well on #f8fafc) --- */
   --hl-fg: #24292e;
   --hl-comment: #6a737d;
   --hl-keyword: #d73a49;
@@ -133,50 +225,60 @@
   --hl-del-bg: #ffeef0;
 }
 
-/* --- DARK palette (GitHub dark) — copy A: explicit override --- */
+/* --- DARK palette (navy-tinted) — copy A: explicit override --- */
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg-canvas: #0d1117;
-  --bg-subtle: #161b22;
-  --bg-inset: #010409;
-  --bg-overlay: #161b22;
-  --bg-header: #161b22;
-  --fg-default: #e6edf3;
-  --fg-muted: #8d96a0;
-  --fg-subtle: #6e7681;
+  --bg-canvas: #101d31;
+  --bg-subtle: #16263e;
+  --bg-inset: #0b1626;
+  --bg-overlay: #16263e;
+  --bg-header: rgba(11, 22, 38, 0.97);
+  --bg-page: #0b1626;
+  --fg-default: #dbe6f3;
+  --fg-heading: #9dc4ee;
+  --fg-muted: #93a8c0;
+  --fg-subtle: #6f849c;
   --fg-on-emphasis: #ffffff;
-  --border-default: #30363d;
-  --border-muted: #21262d;
-  --accent: #4493f8;
-  --accent-emphasis: #1f6feb;
-  --accent-subtle: rgba(56, 139, 253, 0.15);
-  --success: #3fb950;
-  --success-emphasis: #238636;
-  --success-subtle: rgba(46, 160, 67, 0.15);
-  --attention: #d29922;
-  --attention-emphasis: #9e6a03;
-  --attention-subtle: rgba(187, 128, 9, 0.15);
-  --danger: #f85149;
-  --danger-emphasis: #da3633;
-  --danger-subtle: rgba(248, 81, 73, 0.15);
-  --done: #ab7df8;
-  --done-subtle: rgba(163, 113, 247, 0.15);
-  --neutral-muted: rgba(110, 118, 129, 0.4);
-  --focus-ring: rgba(56, 139, 253, 0.4);
-  --underline-active: #f78166;
-  --btn-fg: #e6edf3;
-  --btn-bg: #21262d;
-  --btn-hover-bg: #30363d;
-  --btn-active-bg: #282e33;
-  --btn-border: #30363d;
-  --btn-primary-bg: #238636;
-  --btn-primary-hover-bg: #2ea043;
-  --btn-primary-border: rgba(240, 246, 252, 0.1);
-  --btn-danger-hover-bg: #da3633;
-  --shadow-sm: 0 0 transparent;
-  --shadow-md: 0 3px 6px rgba(1, 4, 9, 0.85);
-  --shadow-lg: 0 8px 24px rgba(1, 4, 9, 0.85);
-  --overlay-backdrop: rgba(1, 4, 9, 0.8);
+  --border-default: rgba(157, 196, 238, 0.20);
+  --border-muted: rgba(157, 196, 238, 0.11);
+  --accent: #9dc4ee;
+  --accent-emphasis: #4d8fd6;
+  --accent-subtle: rgba(77, 143, 214, 0.16);
+  --accent-hover: #ff8555;
+  --success: #4cc285;
+  --success-emphasis: #2ea36b;
+  --success-subtle: rgba(76, 194, 133, 0.14);
+  --attention: #e8b45e;
+  --attention-emphasis: #c98a1e;
+  --attention-subtle: rgba(232, 180, 94, 0.14);
+  --danger: #f4736f;
+  --danger-emphasis: #d64b47;
+  --danger-subtle: rgba(244, 115, 111, 0.13);
+  --done: #9dc4ee;
+  --done-subtle: rgba(157, 196, 238, 0.13);
+  --neutral-muted: rgba(157, 196, 238, 0.10);
+  --focus-ring: rgba(255, 133, 85, 0.28);
+  --underline-active: #ff8555;
+  --btn-fg: #dbe6f3;
+  --btn-bg: #16263e;
+  --btn-hover-bg: rgba(157, 196, 238, 0.10);
+  --btn-active-bg: rgba(157, 196, 238, 0.16);
+  --btn-border: rgba(157, 196, 238, 0.24);
+  --btn-primary-bg: #FF6B35;
+  --btn-primary-hover-bg: #ff8555;
+  --btn-primary-border: transparent;
+  --btn-danger-hover-bg: #d64b47;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 10px 40px rgba(0, 0, 0, 0.55);
+  --shadow-orange: 0 4px 14px rgba(255, 107, 53, 0.28);
+  --shadow-orange-lift: 0 8px 22px rgba(255, 107, 53, 0.38);
+  --overlay-backdrop: rgba(4, 10, 18, 0.82);
+
+  --tint-navy: rgba(77, 143, 214, 0.07);
+  --tint-orange: rgba(255, 107, 53, 0.06);
+  --tint-navy-2: rgba(77, 143, 214, 0.05);
 
   --hl-fg: #c9d1d9;
   --hl-comment: #8b949e;
@@ -186,7 +288,7 @@ html[data-theme="dark"] {
   --hl-string: #a5d6ff;
   --hl-builtin: #ffa657;
   --hl-name: #7ee787;
-  --hl-section: #1f6feb;
+  --hl-section: #79c0ff;
   --hl-bullet: #f2cc60;
   --hl-add-fg: #aff5b4;
   --hl-add-bg: #033a16;
@@ -198,47 +300,57 @@ html[data-theme="dark"] {
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg-canvas: #0d1117;
-    --bg-subtle: #161b22;
-    --bg-inset: #010409;
-    --bg-overlay: #161b22;
-    --bg-header: #161b22;
-    --fg-default: #e6edf3;
-    --fg-muted: #8d96a0;
-    --fg-subtle: #6e7681;
+    --bg-canvas: #101d31;
+    --bg-subtle: #16263e;
+    --bg-inset: #0b1626;
+    --bg-overlay: #16263e;
+    --bg-header: rgba(11, 22, 38, 0.97);
+    --bg-page: #0b1626;
+    --fg-default: #dbe6f3;
+    --fg-heading: #9dc4ee;
+    --fg-muted: #93a8c0;
+    --fg-subtle: #6f849c;
     --fg-on-emphasis: #ffffff;
-    --border-default: #30363d;
-    --border-muted: #21262d;
-    --accent: #4493f8;
-    --accent-emphasis: #1f6feb;
-    --accent-subtle: rgba(56, 139, 253, 0.15);
-    --success: #3fb950;
-    --success-emphasis: #238636;
-    --success-subtle: rgba(46, 160, 67, 0.15);
-    --attention: #d29922;
-    --attention-emphasis: #9e6a03;
-    --attention-subtle: rgba(187, 128, 9, 0.15);
-    --danger: #f85149;
-    --danger-emphasis: #da3633;
-    --danger-subtle: rgba(248, 81, 73, 0.15);
-    --done: #ab7df8;
-    --done-subtle: rgba(163, 113, 247, 0.15);
-    --neutral-muted: rgba(110, 118, 129, 0.4);
-    --focus-ring: rgba(56, 139, 253, 0.4);
-    --underline-active: #f78166;
-    --btn-fg: #e6edf3;
-    --btn-bg: #21262d;
-    --btn-hover-bg: #30363d;
-    --btn-active-bg: #282e33;
-    --btn-border: #30363d;
-    --btn-primary-bg: #238636;
-    --btn-primary-hover-bg: #2ea043;
-    --btn-primary-border: rgba(240, 246, 252, 0.1);
-    --btn-danger-hover-bg: #da3633;
-    --shadow-sm: 0 0 transparent;
-    --shadow-md: 0 3px 6px rgba(1, 4, 9, 0.85);
-    --shadow-lg: 0 8px 24px rgba(1, 4, 9, 0.85);
-    --overlay-backdrop: rgba(1, 4, 9, 0.8);
+    --border-default: rgba(157, 196, 238, 0.20);
+    --border-muted: rgba(157, 196, 238, 0.11);
+    --accent: #9dc4ee;
+    --accent-emphasis: #4d8fd6;
+    --accent-subtle: rgba(77, 143, 214, 0.16);
+    --accent-hover: #ff8555;
+    --success: #4cc285;
+    --success-emphasis: #2ea36b;
+    --success-subtle: rgba(76, 194, 133, 0.14);
+    --attention: #e8b45e;
+    --attention-emphasis: #c98a1e;
+    --attention-subtle: rgba(232, 180, 94, 0.14);
+    --danger: #f4736f;
+    --danger-emphasis: #d64b47;
+    --danger-subtle: rgba(244, 115, 111, 0.13);
+    --done: #9dc4ee;
+    --done-subtle: rgba(157, 196, 238, 0.13);
+    --neutral-muted: rgba(157, 196, 238, 0.10);
+    --focus-ring: rgba(255, 133, 85, 0.28);
+    --underline-active: #ff8555;
+    --btn-fg: #dbe6f3;
+    --btn-bg: #16263e;
+    --btn-hover-bg: rgba(157, 196, 238, 0.10);
+    --btn-active-bg: rgba(157, 196, 238, 0.16);
+    --btn-border: rgba(157, 196, 238, 0.24);
+    --btn-primary-bg: #FF6B35;
+    --btn-primary-hover-bg: #ff8555;
+    --btn-primary-border: transparent;
+    --btn-danger-hover-bg: #d64b47;
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+    --shadow-card: 0 10px 40px rgba(0, 0, 0, 0.55);
+    --shadow-orange: 0 4px 14px rgba(255, 107, 53, 0.28);
+    --shadow-orange-lift: 0 8px 22px rgba(255, 107, 53, 0.38);
+    --overlay-backdrop: rgba(4, 10, 18, 0.82);
+
+    --tint-navy: rgba(77, 143, 214, 0.07);
+    --tint-orange: rgba(255, 107, 53, 0.06);
+    --tint-navy-2: rgba(77, 143, 214, 0.05);
 
     --hl-fg: #c9d1d9;
     --hl-comment: #8b949e;
@@ -248,7 +360,7 @@ html[data-theme="dark"] {
     --hl-string: #a5d6ff;
     --hl-builtin: #ffa657;
     --hl-name: #7ee787;
-    --hl-section: #1f6feb;
+    --hl-section: #79c0ff;
     --hl-bullet: #f2cc60;
     --hl-add-fg: #aff5b4;
     --hl-add-bg: #033a16;
@@ -267,34 +379,62 @@ html[data-theme="dark"] {
 html {
   -webkit-text-size-adjust: 100%;
   font-size: 16px;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  position: relative;
   font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.7;
   color: var(--fg-default);
-  background-color: var(--bg-canvas);
+  background-color: var(--bg-page);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-wrap: break-word;
 }
 
-h1, h2, h3, h4, h5, h6 { margin: 0; font-weight: 600; line-height: 1.25; }
+/* Drifting tint field — the bridging course's signature backdrop. Fixed and
+   behind everything, so it never interferes with layout or hit-testing. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 50%, var(--tint-navy) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, var(--tint-orange) 0%, transparent 50%),
+    radial-gradient(circle at 40% 20%, var(--tint-navy-2) 0%, transparent 50%);
+  animation: bgFloat 20s ease-in-out infinite;
+}
+@keyframes bgFloat {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(-20px, -20px) scale(1.05); }
+  66%      { transform: translate(20px, -10px) scale(0.95); }
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--fg-heading);
+}
 p { margin: 0 0 8px; }
 p:last-child { margin-bottom: 0; }
 ul, ol { margin: 0; padding-left: 20px; }
-hr { height: 1px; margin: 16px 0; border: 0; background: var(--border-default); }
+hr { height: 1px; margin: 16px 0; border: 0; background: var(--border-muted); }
 img, svg, video { max-width: 100%; }
 svg { vertical-align: text-bottom; flex-shrink: 0; }
 
 a {
   color: var(--accent);
   text-decoration: none;
+  transition: color 0.15s ease;
 }
-a:hover { text-decoration: underline; }
+a:hover { text-decoration: none; color: var(--accent-hover); }
 a:not([href]) { color: inherit; text-decoration: none; }
 
 small { font-size: 12px; }
@@ -311,22 +451,21 @@ button { cursor: pointer; }
 button:disabled, .btn:disabled, .btn.disabled { cursor: not-allowed; }
 
 :focus-visible {
-  outline: 2px solid var(--accent-emphasis);
+  outline: 2px solid var(--nus-orange);
   outline-offset: 2px;
 }
 
-::selection { background: var(--accent-subtle); }
+::selection { background: rgba(255, 107, 53, 0.22); }
 
 kbd {
   display: inline-block;
-  padding: 3px 5px;
+  padding: 3px 6px;
   font-size: 11px;
   line-height: 10px;
-  color: var(--fg-default);
+  color: var(--accent);
   background: var(--bg-subtle);
   border: 1px solid var(--border-default);
-  border-bottom-color: var(--border-default);
-  border-radius: var(--radius);
+  border-radius: 6px;
   box-shadow: inset 0 -1px 0 var(--border-default);
 }
 
@@ -340,8 +479,8 @@ kbd {
   max-width: var(--content-max);
   margin-right: auto;
   margin-left: auto;
-  padding-right: 16px;
-  padding-left: 16px;
+  padding-right: 24px;
+  padding-left: 24px;
 }
 
 .layout {
@@ -349,8 +488,8 @@ kbd {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   gap: 24px;
   align-items: start;
-  padding-top: 24px;
-  padding-bottom: 64px;
+  padding-top: 28px;
+  padding-bottom: 80px;
 }
 
 /* explicit placement so markup order (sidebar-first or main-first) is
@@ -368,25 +507,60 @@ kbd {
 .layout-single > .main { grid-column: 1; }
 .layout > .main:only-child { grid-column: 1 / -1; }
 
-.sidebar { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.main { display: block; min-width: 0; }
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  position: sticky;
+  top: calc(var(--header-height) + 20px);
+  max-height: calc(100vh - var(--header-height) - 40px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+
+/* The main column is the big white card — the bridging course's
+   .module-content. Cards nest inside it with lighter borders. */
+.main {
+  display: block;
+  min-width: 0;
+  background: var(--bg-canvas);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 30px 34px 34px;
+}
 
 .page-head {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--border-muted);
 }
-.page-head h1 { font-size: 20px; }
+.page-head h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--fg-heading);
+  line-height: 1.2;
+}
+.page-head .page-sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 .toolbar .grow { flex: 1 1 200px; min-width: 0; }
 
@@ -396,46 +570,69 @@ kbd {
    ---------------------------------------------------------------------- */
 
 .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
   background-color: var(--bg-header);
-  border-bottom: 1px solid var(--border-default);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-muted);
+  box-shadow: 0 2px 20px rgba(0, 61, 124, 0.06);
+}
+html[data-theme="dark"] .app-header { box-shadow: 0 2px 20px rgba(0, 0, 0, 0.4); }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .app-header { box-shadow: 0 2px 20px rgba(0, 0, 0, 0.4); }
 }
 
 .app-header-inner {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
   width: 100%;
   max-width: var(--content-max);
   min-height: var(--header-height);
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 0 24px;
   flex-wrap: wrap;
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--fg-default);
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+  color: var(--fg-heading);
   white-space: nowrap;
 }
-.brand:hover { text-decoration: none; color: var(--fg-default); }
+.brand:hover { text-decoration: none; color: var(--fg-heading); }
 .brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  color: var(--fg-default);
+  width: 30px;
+  height: 30px;
+  color: var(--nus-orange);
+  transition: transform 0.3s ease;
 }
-.brand-mark svg { width: 26px; height: 26px; }
+.brand:hover .brand-mark { transform: scale(1.06); }
+.brand-mark svg { width: 27px; height: 27px; }
+
+/* Optional NUS wordmark image, injected by ui.js when a logo URL is set.
+   Falls back to the SVG brand mark if the image fails to load. */
+.brand-logo { height: 42px; width: auto; display: block; }
+.brand-divider {
+  width: 1px;
+  height: 30px;
+  background: var(--border-default);
+  flex: 0 0 auto;
+}
 
 .app-nav {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex: 1 1 auto;
   align-self: stretch;
   overflow-x: auto;
@@ -448,37 +645,42 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  margin-bottom: -1px;
+  padding: 10px 12px;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   background: none;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
-  color: var(--fg-default);
+  letter-spacing: 0.2px;
+  color: var(--accent);
   white-space: nowrap;
-  border-radius: var(--radius) var(--radius) 0 0;
+  border-radius: 8px 8px 0 0;
   align-self: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .app-nav a:hover,
 .app-nav button:hover {
   text-decoration: none;
-  background-color: var(--neutral-muted);
+  color: var(--accent-hover);
+  background-color: transparent;
 }
+.app-nav a:hover svg,
+.app-nav button:hover svg { color: var(--accent-hover); }
 .app-nav a.active,
 .app-nav button.active,
 .app-nav a[aria-current="page"] {
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--accent);
   border-bottom-color: var(--underline-active);
   background: none;
 }
-.app-nav svg { color: var(--fg-muted); }
-.app-nav .active svg { color: var(--fg-default); }
+.app-nav svg { color: var(--fg-muted); transition: color 0.2s ease; }
+.app-nav .active svg { color: var(--accent); }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-left: auto;
 }
 
@@ -486,31 +688,38 @@ kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   color: var(--fg-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  transition: all 0.2s ease;
 }
-.theme-toggle:hover { background: var(--neutral-muted); color: var(--fg-default); }
+.theme-toggle:hover {
+  color: var(--nus-orange);
+  border-color: var(--nus-orange);
+  background: rgba(255, 107, 53, 0.06);
+}
 
 /* user menu ------------------------------------------------------------- */
 .user-menu { position: relative; }
 .user-menu-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  color: var(--fg-default);
-  font-size: 13px;
-  max-width: 190px;
+  gap: 8px;
+  padding: 5px 12px;
+  background: var(--accent-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  max-width: 200px;
+  transition: all 0.2s ease;
 }
-.user-menu-btn:hover { background: var(--neutral-muted); }
+.user-menu-btn:hover { background: var(--btn-active-bg); border-color: var(--btn-border); }
 .user-menu-btn .user-menu-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -519,57 +728,69 @@ kbd {
 .user-menu-caret {
   width: 0; height: 0;
   border: 4px solid transparent;
-  border-top-color: var(--fg-muted);
+  border-top-color: currentColor;
   margin-top: 4px;
+  opacity: 0.7;
 }
 
 .menu-dropdown {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   right: 0;
   z-index: 60;
-  min-width: 220px;
-  padding: 4px 0;
+  min-width: 230px;
+  padding: 6px 0;
   background: var(--bg-overlay);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
+  overflow: hidden;
 }
 .menu-dropdown[hidden] { display: none; }
 .menu-header {
-  padding: 8px 12px;
+  padding: 10px 14px;
   font-size: 12px;
   color: var(--fg-muted);
   border-bottom: 1px solid var(--border-muted);
 }
-.menu-header strong { display: block; color: var(--fg-default); font-size: 13px; }
+.menu-header strong {
+  display: block;
+  color: var(--fg-heading);
+  font-size: 13.5px;
+  font-weight: 700;
+}
 .menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 7px 12px;
+  padding: 8px 14px;
   background: none;
   border: 0;
+  border-left: 3px solid transparent;
   text-align: left;
   font-size: 13px;
+  font-weight: 500;
   color: var(--fg-default);
+  transition: all 0.15s ease;
 }
 .menu-item:hover {
-  background: var(--accent-emphasis);
-  color: var(--fg-on-emphasis);
+  background: var(--accent-subtle);
+  border-left-color: var(--nus-orange);
+  color: var(--accent);
   text-decoration: none;
 }
-.menu-item:hover svg { color: var(--fg-on-emphasis); }
+.menu-item:hover svg { color: var(--nus-orange); }
 .menu-item svg { color: var(--fg-muted); }
-.menu-item.is-current { font-weight: 600; }
-.menu-sep { height: 1px; margin: 4px 0; background: var(--border-muted); }
+.menu-item.is-current { font-weight: 700; color: var(--accent); }
+.menu-sep { height: 1px; margin: 6px 0; background: var(--border-muted); }
 .menu-note {
-  padding: 6px 12px;
-  font-size: 11px;
+  padding: 8px 14px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--fg-subtle);
+  letter-spacing: 1.1px;
+  color: var(--nus-orange);
 }
 
 
@@ -577,47 +798,73 @@ kbd {
    5. Sidebar components
    ---------------------------------------------------------------------- */
 
+/* Each section is its own white card — the bridging course's .subnav. */
 .side-section {
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-muted);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 20px 16px;
 }
-.side-section:last-child { border-bottom: 0; padding-bottom: 0; }
+.side-section:last-child { border-bottom: 1px solid var(--border-muted); padding-bottom: 20px; }
 
 .side-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding: 0 8px 12px;
   margin-bottom: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--fg-default);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--nus-orange);
+  border-bottom: 1px solid var(--border-muted);
 }
-.side-title small { font-weight: 400; color: var(--fg-muted); }
+.side-title small {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: none;
+  color: var(--fg-subtle);
+}
 
-.cat-list { display: flex; flex-direction: column; gap: 1px; list-style: none; margin: 0; padding: 0; }
+.cat-list { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 0; padding: 0; }
 
 .cat-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: var(--radius);
+  padding: 9px 12px;
+  border-radius: 8px;
+  border-left: 3px solid transparent;
   font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
   color: var(--fg-default);
   cursor: pointer;
   background: none;
-  border: 0;
+  border-top: 0; border-right: 0; border-bottom: 0;
   width: 100%;
   text-align: left;
+  transition: all 0.2s ease;
 }
-.cat-item:hover { background: var(--neutral-muted); text-decoration: none; }
+.cat-item:hover {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  text-decoration: none;
+  transform: translateX(3px);
+  box-shadow: 0 2px 8px rgba(0, 61, 124, 0.08);
+}
 .cat-item.active {
   font-weight: 600;
   background: var(--accent-subtle);
-  color: var(--fg-default);
+  border-left-color: var(--nus-orange);
+  color: var(--accent);
 }
 .cat-item svg { color: var(--fg-muted); }
+.cat-item:hover svg, .cat-item.active svg { color: var(--accent); }
 .cat-item .cat-name {
   flex: 1 1 auto;
   overflow: hidden;
@@ -627,30 +874,37 @@ kbd {
 
 .counter {
   display: inline-block;
-  min-width: 20px;
-  padding: 0 6px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
+  min-width: 26px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
   text-align: center;
-  color: var(--fg-muted);
-  background: var(--neutral-muted);
+  color: var(--fg-subtle);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-muted);
   border-radius: var(--radius-pill);
 }
-.cat-item.active .counter { color: var(--fg-default); }
+.cat-item.active .counter {
+  color: var(--nus-orange);
+  border-color: rgba(255, 107, 53, 0.30);
+  background: rgba(255, 107, 53, 0.07);
+}
 
-.label-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
+.label-cloud { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px 2px; }
 
 .notice-box {
-  padding: 12px 16px;
-  font-size: 13px;
-  line-height: 1.5;
+  padding: 13px 16px;
+  margin: 4px 4px 0;
+  font-size: 13.5px;
+  line-height: 1.65;
   color: var(--fg-default);
-  background: var(--attention-subtle);
-  border: 1px solid var(--attention-emphasis);
-  border-radius: var(--radius);
+  background: var(--accent-subtle);
+  border: 0;
+  border-left: 3px solid var(--accent-emphasis);
+  border-radius: 6px;
 }
-.notice-box strong { display: block; margin-bottom: 4px; }
+.notice-box strong { display: block; margin-bottom: 4px; color: var(--accent); }
 .notice-box p { margin-bottom: 6px; }
 
 /* leaderboard ----------------------------------------------------------- */
@@ -659,22 +913,29 @@ kbd {
 .lb-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: var(--radius);
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border-left: 3px solid transparent;
   font-size: 13px;
+  transition: all 0.2s ease;
 }
-.lb-row:hover { background: var(--neutral-muted); }
+.lb-row:hover { background: var(--accent-subtle); transform: translateX(3px); }
+.lb-row.is-me {
+  background: rgba(255, 107, 53, 0.06);
+  border-left-color: var(--nus-orange);
+}
 
 .lb-rank {
   width: 18px;
   flex: 0 0 18px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 800;
   text-align: center;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   font-variant-numeric: tabular-nums;
 }
+.lb-row:nth-child(-n+3) .lb-rank { color: var(--nus-orange); }
 
 .lb-medal {
   display: inline-flex;
@@ -702,14 +963,15 @@ html[data-theme="dark"] .lb-medal.rank-3 { color: #cd7f32; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 600;
   color: var(--fg-default);
 }
 
 .lb-score {
   flex: 0 0 auto;
   font-size: 12px;
-  font-weight: 600;
-  color: var(--fg-muted);
+  font-weight: 800;
+  color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
 
@@ -724,9 +986,10 @@ html[data-theme="dark"] .lb-medal.rank-3 { color: #cd7f32; }
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 5px 16px;
+  padding: 9px 18px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.3px;
   line-height: 20px;
   white-space: nowrap;
   vertical-align: middle;
@@ -734,49 +997,66 @@ html[data-theme="dark"] .lb-medal.rank-3 { color: #cd7f32; }
   user-select: none;
   color: var(--btn-fg);
   background-color: var(--btn-bg);
-  border: 1px solid var(--btn-border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-  transition: background-color 80ms linear, border-color 80ms linear, color 80ms linear;
+  border: 1.5px solid var(--btn-border);
+  border-radius: 8px;
+  box-shadow: none;
+  transition: transform 0.15s ease, box-shadow 0.2s ease,
+              background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   text-decoration: none;
 }
-.btn:hover { background-color: var(--btn-hover-bg); text-decoration: none; color: var(--btn-fg); }
-.btn:active { background-color: var(--btn-active-bg); transition: none; }
+.btn:hover {
+  background-color: var(--btn-hover-bg);
+  border-color: var(--accent-emphasis);
+  text-decoration: none;
+  color: var(--btn-fg);
+  transform: translateY(-1px);
+}
+.btn:active { background-color: var(--btn-active-bg); transform: none; transition: none; }
 .btn:disabled, .btn.disabled, .btn[aria-disabled="true"] {
   color: var(--fg-subtle);
   background-color: var(--btn-bg);
-  border-color: var(--border-default);
+  border-color: var(--border-muted);
   box-shadow: none;
-  opacity: 0.75;
+  transform: none;
+  opacity: 0.6;
   pointer-events: none;
 }
-.btn svg { color: var(--fg-muted); }
-.btn:hover svg { color: var(--fg-muted); }
+.btn svg { color: currentColor; opacity: 0.85; }
+.btn:hover svg { color: currentColor; }
 
 .btn-primary {
   color: #ffffff;
-  background-color: var(--btn-primary-bg);
-  border-color: var(--btn-primary-border);
+  background: var(--grad-orange);
+  border-color: transparent;
+  box-shadow: var(--shadow-orange);
 }
-.btn-primary:hover { color: #ffffff; background-color: var(--btn-primary-hover-bg); }
-.btn-primary:active { background-color: var(--btn-primary-hover-bg); }
-.btn-primary svg, .btn-primary:hover svg { color: rgba(255, 255, 255, 0.85); }
+.btn-primary:hover {
+  color: #ffffff;
+  background: var(--grad-orange);
+  border-color: transparent;
+  box-shadow: var(--shadow-orange-lift);
+  transform: translateY(-1px);
+}
+.btn-primary:active { background: linear-gradient(135deg, #f4571d 0%, #ff6b35 100%); }
+.btn-primary svg, .btn-primary:hover svg { color: #ffffff; opacity: 0.9; }
 .btn-primary:disabled, .btn-primary.disabled {
-  color: rgba(255, 255, 255, 0.8);
-  background-color: var(--btn-primary-bg);
-  opacity: 0.6;
+  color: rgba(255, 255, 255, 0.85);
+  background: var(--grad-orange);
+  box-shadow: none;
+  opacity: 0.55;
 }
 
-.btn-danger { color: var(--danger); }
+.btn-danger { color: var(--danger); border-color: rgba(211, 47, 47, 0.30); }
 .btn-danger:hover {
   color: #ffffff;
   background-color: var(--btn-danger-hover-bg);
   border-color: var(--btn-danger-hover-bg);
+  box-shadow: 0 6px 16px rgba(211, 47, 47, 0.22);
 }
-.btn-danger:hover svg { color: rgba(255, 255, 255, 0.85); }
+.btn-danger:hover svg { color: #ffffff; }
 .btn-danger svg { color: var(--danger); }
 
-.btn-sm { padding: 3px 12px; font-size: 12px; line-height: 20px; }
+.btn-sm { padding: 7px 14px; font-size: 12px; line-height: 18px; border-radius: 7px; }
 .btn-sm svg { width: 14px; height: 14px; }
 
 .btn-invisible {
@@ -785,30 +1065,57 @@ html[data-theme="dark"] .lb-medal.rank-3 { color: #cd7f32; }
   border-color: transparent;
   box-shadow: none;
 }
-.btn-invisible:hover { background: var(--neutral-muted); color: var(--accent); }
+.btn-invisible:hover {
+  background: var(--accent-subtle);
+  border-color: transparent;
+  color: var(--accent-hover);
+}
 .btn-invisible.btn-muted { color: var(--fg-muted); }
 
 .btn-icon {
-  padding: 5px 8px;
+  padding: 7px 9px;
   color: var(--fg-muted);
   background: transparent;
   border-color: transparent;
   box-shadow: none;
 }
-.btn-icon:hover { background: var(--neutral-muted); color: var(--fg-default); }
+.btn-icon:hover {
+  background: var(--accent-subtle);
+  border-color: transparent;
+  color: var(--accent);
+}
 
 .btn-block { display: flex; width: 100%; }
 
 .btn.selected, .btn[aria-pressed="true"] {
-  background-color: var(--btn-active-bg);
-  border-color: var(--border-default);
+  background-color: var(--accent-subtle);
+  border-color: var(--accent-emphasis);
+  color: var(--accent);
+  font-weight: 700;
 }
 
-.btn-group { display: inline-flex; }
-.btn-group > .btn { border-radius: 0; margin-left: -1px; }
-.btn-group > .btn:first-child { border-radius: var(--radius) 0 0 var(--radius); margin-left: 0; }
-.btn-group > .btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
-.btn-group > .btn:hover, .btn-group > .btn.selected { z-index: 1; }
+.btn-group { display: inline-flex; gap: 4px; padding: 4px; background: var(--bg-subtle); border-radius: 9px; }
+.btn-group > .btn {
+  border-radius: 7px;
+  margin-left: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 13px;
+  box-shadow: none;
+}
+.btn-group > .btn:first-child { border-radius: 7px; }
+.btn-group > .btn:last-child { border-radius: 7px; }
+.btn-group > .btn:hover { color: var(--accent); background: transparent; transform: none; }
+.btn-group > .btn.selected, .btn-group > .btn[aria-pressed="true"] {
+  z-index: 1;
+  background: var(--bg-canvas);
+  color: var(--accent);
+  border-color: transparent;
+  box-shadow: 0 1px 6px rgba(0, 61, 124, 0.12);
+}
 
 
 /* -------------------------------------------------------------------------
@@ -821,15 +1128,15 @@ html[data-theme="dark"] .lb-medal.rank-3 { color: #cd7f32; }
 .field-label {
   display: block;
   margin-bottom: 6px;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
-  color: var(--fg-default);
+  color: var(--fg-heading);
 }
 .field-label .req { color: var(--danger); font-weight: 400; }
 
 .field-hint {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.5;
   color: var(--fg-muted);
 }
@@ -837,22 +1144,22 @@ html[data-theme="dark"] .lb-medal.rank-3 { color: #cd7f32; }
 .input, .textarea, .select {
   display: block;
   width: 100%;
-  padding: 5px 12px;
+  padding: 10px 13px;
   font-size: 14px;
   line-height: 20px;
   color: var(--fg-default);
   background-color: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm) inset;
-  transition: border-color 80ms linear, box-shadow 80ms linear;
+  border: 1.5px solid var(--border-default);
+  border-radius: 9px;
+  box-shadow: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   appearance: none;
   -webkit-appearance: none;
 }
 .input::placeholder, .textarea::placeholder { color: var(--fg-subtle); }
 .input:focus, .textarea:focus, .select:focus {
   outline: none;
-  border-color: var(--accent-emphasis);
+  border-color: var(--nus-orange);
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 .input:disabled, .textarea:disabled, .select:disabled {
@@ -868,24 +1175,32 @@ html[data-theme="dark"] .lb-medal.rank-3 { color: #cd7f32; }
   box-shadow: 0 0 0 3px var(--danger-subtle);
 }
 
-.input-sm { padding: 3px 8px; font-size: 12px; line-height: 18px; }
+.input-sm { padding: 6px 10px; font-size: 12px; line-height: 18px; border-radius: 7px; }
 
 .textarea {
   min-height: 100px;
-  line-height: 1.5;
+  line-height: 1.6;
   resize: vertical;
   font-family: inherit;
 }
 .textarea.mono { font-family: var(--font-mono); font-size: 13px; }
 
 .select {
-  padding-right: 30px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%236e7781'%3E%3Cpath d='M4 6l4 4 4-4z'/%3E%3C/svg%3E");
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%235a6c7d'%3E%3Cpath d='M4 6l4 4 4-4z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 8px center;
+  background-position: right 10px center;
   background-size: 16px 16px;
 }
-select.select[multiple] { background-image: none; padding-right: 12px; }
+html[data-theme="dark"] .select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%2393a8c0'%3E%3Cpath d='M4 6l4 4 4-4z'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%2393a8c0'%3E%3Cpath d='M4 6l4 4 4-4z'/%3E%3C/svg%3E");
+  }
+}
+select.select[multiple] { background-image: none; padding-right: 13px; }
 
 .form-row { display: flex; flex-wrap: wrap; gap: 16px; }
 .form-row > .field { flex: 1 1 200px; min-width: 0; }
@@ -893,7 +1208,7 @@ select.select[multiple] { background-image: none; padding-right: 12px; }
 .checkbox-row {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
   font-size: 14px;
   color: var(--fg-default);
 }
@@ -901,8 +1216,8 @@ select.select[multiple] { background-image: none; padding-right: 12px; }
 .checkbox-row input[type="radio"] {
   width: 16px;
   height: 16px;
-  margin: 2px 0 0;
-  accent-color: var(--accent-emphasis);
+  margin: 3px 0 0;
+  accent-color: var(--nus-orange);
   flex: 0 0 auto;
   cursor: pointer;
 }
@@ -912,25 +1227,27 @@ select.select[multiple] { background-image: none; padding-right: 12px; }
 .form-error {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
   margin-top: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   font-size: 13px;
   color: var(--fg-default);
   background: var(--danger-subtle);
-  border: 1px solid var(--danger-emphasis);
-  border-radius: var(--radius);
+  border: 0;
+  border-left: 3px solid var(--danger-emphasis);
+  border-radius: 6px;
 }
 .form-error:empty, .form-error[hidden] { display: none; }
-.form-error svg { color: var(--danger); margin-top: 2px; }
+.form-error svg { color: var(--danger); margin-top: 3px; }
 
 .form-success {
   margin-top: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   font-size: 13px;
   background: var(--success-subtle);
-  border: 1px solid var(--success-emphasis);
-  border-radius: var(--radius);
+  border: 0;
+  border-left: 3px solid var(--success-emphasis);
+  border-radius: 6px;
 }
 
 
@@ -940,109 +1257,137 @@ select.select[multiple] { background-image: none; padding-right: 12px; }
 
 /* .pill — deterministic pastel chip. ui.js sets the inline custom property
    --pill-h (a hue, 0-359); lightness/saturation are theme-aware here so a
-   theme switch needs no re-render. */
+   theme switch needs no re-render. Pulled toward the navy end of each hue so
+   the cloud sits calmly under the NUS palette. */
 .pill {
   --pill-h: 212;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   max-width: 100%;
-  padding: 0 7px;
-  font-size: 12px;
+  padding: 3px 11px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: 500;
-  line-height: 20px;
+  line-height: 16px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   border-radius: var(--radius-pill);
-  color: hsl(var(--pill-h), 62%, 27%);
-  background-color: hsl(var(--pill-h), 72%, 92%);
-  border: 1px solid hsl(var(--pill-h), 45%, 80%);
+  color: hsl(var(--pill-h), 55%, 30%);
+  background-color: hsl(var(--pill-h), 60%, 96%);
+  border: 1px solid hsl(var(--pill-h), 40%, 84%);
+  transition: all 0.15s ease;
 }
 a.pill:hover, button.pill:hover {
   text-decoration: none;
-  background-color: hsl(var(--pill-h), 72%, 87%);
+  border-color: var(--nus-orange);
+  color: var(--nus-orange);
+  background-color: rgba(255, 107, 53, 0.06);
+  transform: translateY(-1px);
 }
 html[data-theme="dark"] .pill {
-  color: hsl(var(--pill-h), 70%, 76%);
-  background-color: hsl(var(--pill-h), 55%, 15%);
-  border-color: hsl(var(--pill-h), 45%, 28%);
+  color: hsl(var(--pill-h), 55%, 78%);
+  background-color: hsl(var(--pill-h), 40%, 17%);
+  border-color: hsl(var(--pill-h), 35%, 30%);
 }
 html[data-theme="dark"] a.pill:hover,
 html[data-theme="dark"] button.pill:hover {
-  background-color: hsl(var(--pill-h), 55%, 20%);
+  border-color: var(--nus-orange);
+  color: var(--nus-orange);
+  background-color: rgba(255, 107, 53, 0.12);
 }
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) .pill {
-    color: hsl(var(--pill-h), 70%, 76%);
-    background-color: hsl(var(--pill-h), 55%, 15%);
-    border-color: hsl(var(--pill-h), 45%, 28%);
+    color: hsl(var(--pill-h), 55%, 78%);
+    background-color: hsl(var(--pill-h), 40%, 17%);
+    border-color: hsl(var(--pill-h), 35%, 30%);
   }
   html:not([data-theme="light"]) a.pill:hover,
   html:not([data-theme="light"]) button.pill:hover {
-    background-color: hsl(var(--pill-h), 55%, 20%);
+    border-color: var(--nus-orange);
+    color: var(--nus-orange);
+    background-color: rgba(255, 107, 53, 0.12);
   }
 }
 .pill.is-active {
   box-shadow: 0 0 0 2px var(--focus-ring);
+  border-color: var(--nus-orange);
 }
 
-/* category chips stay neutral in BOTH themes — these selectors have to match
-   the specificity of the themed .pill rules above, hence the html[...] prefix */
+/* category chips are the navy-tinted uppercase pills from the bridging cards —
+   these selectors have to match the specificity of the themed .pill rules
+   above, hence the html[...] prefix */
 .pill-category,
 html[data-theme="dark"] .pill-category {
   --pill-h: 212;
-  color: var(--fg-muted);
-  background-color: var(--bg-subtle);
-  border-color: var(--border-default);
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--accent);
+  background-color: var(--accent-subtle);
+  border-color: transparent;
 }
 a.pill-category:hover, button.pill-category:hover,
 html[data-theme="dark"] a.pill-category:hover,
 html[data-theme="dark"] button.pill-category:hover {
-  background-color: var(--neutral-muted);
-  color: var(--fg-default);
+  background-color: var(--btn-active-bg);
+  color: var(--accent);
+  border-color: transparent;
 }
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) .pill-category {
-    color: var(--fg-muted);
-    background-color: var(--bg-subtle);
-    border-color: var(--border-default);
+    font-family: var(--font-sans);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--accent);
+    background-color: var(--accent-subtle);
+    border-color: transparent;
   }
   html:not([data-theme="light"]) a.pill-category:hover,
   html:not([data-theme="light"]) button.pill-category:hover {
-    background-color: var(--neutral-muted);
-    color: var(--fg-default);
+    background-color: var(--btn-active-bg);
+    color: var(--accent);
+    border-color: transparent;
   }
 }
 
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 7px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 16px;
   white-space: nowrap;
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
   color: var(--fg-muted);
   background: var(--bg-subtle);
-  border-color: var(--border-default);
+  border-color: var(--border-muted);
 }
 
 .badge-answered {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 7px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 16px;
   white-space: nowrap;
   border-radius: var(--radius-pill);
-  color: var(--fg-on-emphasis);
-  background: var(--success-emphasis);
+  color: #ffffff;
+  background: linear-gradient(135deg, #2ea36b 0%, #4cc285 100%);
   border: 1px solid transparent;
 }
 .badge-answered svg { color: currentColor; }
@@ -1050,26 +1395,30 @@ html[data-theme="dark"] button.pill-category:hover {
 .badge-pinned {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 7px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 16px;
   white-space: nowrap;
   border-radius: var(--radius-pill);
-  color: var(--accent);
-  background: var(--accent-subtle);
-  border: 1px solid var(--accent-emphasis);
+  color: #ffffff;
+  background: var(--grad-orange);
+  border: 1px solid transparent;
 }
 
 .badge-top-contrib {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0 6px;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 18px;
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 16px;
   white-space: nowrap;
   border-radius: var(--radius-pill);
   color: var(--attention);
@@ -1089,25 +1438,39 @@ html[data-theme="dark"] button.pill-category:hover {
   width: var(--av-size);
   height: var(--av-size);
   font-size: calc(var(--av-size) * 0.42);
-  font-weight: 600;
+  font-weight: 800;
   line-height: 1;
   letter-spacing: 0.02em;
   color: #ffffff;
-  background-color: hsl(var(--av-h), 52%, 42%);
+  background-image: linear-gradient(135deg,
+    hsl(var(--av-h), 55%, 34%) 0%,
+    hsl(var(--av-h), 55%, 46%) 100%);
+  background-color: hsl(var(--av-h), 55%, 38%);
   border-radius: 50%;
   overflow: hidden;
   user-select: none;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06) inset;
 }
-html[data-theme="dark"] .avatar { background-color: hsl(var(--av-h), 45%, 46%); }
+html[data-theme="dark"] .avatar {
+  background-image: linear-gradient(135deg,
+    hsl(var(--av-h), 45%, 42%) 0%,
+    hsl(var(--av-h), 45%, 54%) 100%);
+  background-color: hsl(var(--av-h), 45%, 46%);
+}
 @media (prefers-color-scheme: dark) {
-  html:not([data-theme="light"]) .avatar { background-color: hsl(var(--av-h), 45%, 46%); }
+  html:not([data-theme="light"]) .avatar {
+    background-image: linear-gradient(135deg,
+      hsl(var(--av-h), 45%, 42%) 0%,
+      hsl(var(--av-h), 45%, 54%) 100%);
+    background-color: hsl(var(--av-h), 45%, 46%);
+  }
 }
 .avatar-sm { --av-size: 20px; }
 .avatar-lg { --av-size: 40px; }
 
 .avatar-anon {
   color: var(--fg-muted);
+  background-image: none !important;
   background-color: var(--bg-subtle) !important;
   border: 1px dashed var(--border-default);
   box-shadow: none;
@@ -1123,65 +1486,101 @@ html[data-theme="dark"] .avatar { background-color: hsl(var(--av-h), 45%, 46%); 
    9. Thread list (index.html)
    ---------------------------------------------------------------------- */
 
+/* The list itself is now just a stack — each row is its own card, so the
+   outer container carries no chrome of its own. */
 .thread-list {
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 .thread-list-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  font-size: 13px;
-  color: var(--fg-muted);
-  background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border-default);
+  gap: 10px;
+  padding: 0 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+  background: transparent;
+  border-bottom: 1px solid var(--border-muted);
 }
 
 .thread-row {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-muted);
+  gap: 14px;
+  padding: 15px 18px;
   background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  border-left: 3px solid transparent;
+  border-radius: 12px;
+  border-top: 1px solid var(--border-muted);
+  transition: all 0.2s ease;
 }
-.thread-row:first-child { border-top: 0; }
-.thread-row:hover { background: var(--bg-subtle); }
-.thread-row.is-pinned { background: var(--attention-subtle); }
-.thread-row.is-pinned:hover { background: var(--attention-subtle); }
+.thread-row:first-child { border-top: 1px solid var(--border-muted); }
+.thread-row:hover {
+  background: var(--bg-canvas);
+  border-color: var(--border-default);
+  border-left-color: var(--nus-orange);
+  transform: translateX(3px);
+  box-shadow: 0 6px 20px rgba(0, 61, 124, 0.10);
+}
+.thread-row.is-pinned {
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.05) 0%, var(--bg-canvas) 60%);
+  border-color: rgba(255, 107, 53, 0.25);
+}
+.thread-row.is-pinned:hover {
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.07) 0%, var(--bg-canvas) 60%);
+  border-color: rgba(255, 107, 53, 0.45);
+  border-left-color: var(--nus-orange);
+}
 
 .thread-row-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 16px;
-  width: 16px;
-  height: 20px;
-  color: var(--done);              /* open discussion — GitHub purple */
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--accent-subtle);
+  color: var(--done);
 }
-.thread-row-icon.answered { color: var(--success); }
-.thread-row-icon svg { width: 16px; height: 16px; }
+.thread-row-icon.answered {
+  color: var(--success);
+  background: var(--success-subtle);
+}
+.thread-row.is-pinned .thread-row-icon {
+  background: var(--grad-orange);
+  color: #ffffff;
+}
+.thread-row-icon svg { width: 17px; height: 17px; }
 
 .thread-row-main { flex: 1 1 auto; min-width: 0; }
 
 .thread-row-title {
   display: inline;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 1.35;
-  color: var(--fg-default);
-  margin-right: 6px;
+  line-height: 1.4;
+  color: var(--fg-heading);
+  margin-right: 8px;
+  transition: color 0.2s ease;
 }
-a.thread-row-title:hover { color: var(--accent); text-decoration: none; }
+a.thread-row-title:hover { color: var(--nus-orange); text-decoration: none; }
+.thread-row:hover .thread-row-title { color: var(--nus-orange); }
 
 .thread-row-badges {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 5px;
   vertical-align: middle;
 }
 
@@ -1189,19 +1588,21 @@ a.thread-row-title:hover { color: var(--accent); text-decoration: none; }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 8px;
+  margin-top: 7px;
   font-size: 12px;
+  line-height: 1.5;
   color: var(--fg-muted);
 }
-.thread-row-meta a { color: var(--fg-muted); font-weight: 500; }
-.thread-row-meta a:hover { color: var(--accent); }
+.thread-row-meta a { color: var(--fg-default); font-weight: 600; }
+.thread-row-meta a:hover { color: var(--nus-orange); }
 .thread-row-meta .sep { color: var(--border-default); }
 
 .thread-row-stats {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
   flex: 0 0 auto;
   padding-top: 2px;
   font-size: 12px;
@@ -1211,10 +1612,21 @@ a.thread-row-title:hover { color: var(--accent); text-decoration: none; }
 .stat-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  padding: 3px 11px;
+  font-weight: 700;
+  color: var(--fg-muted);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-pill);
 }
-.stat-chip svg { width: 14px; height: 14px; color: var(--fg-muted); }
-.stat-chip.is-hot { color: var(--fg-default); font-weight: 600; }
+.stat-chip svg { width: 12px; height: 12px; color: currentColor; }
+.stat-chip.is-hot {
+  color: var(--nus-orange);
+  border-color: rgba(255, 107, 53, 0.28);
+  background: rgba(255, 107, 53, 0.06);
+  font-weight: 800;
+}
 
 
 /* -------------------------------------------------------------------------
@@ -1222,17 +1634,17 @@ a.thread-row-title:hover { color: var(--accent); text-decoration: none; }
    ---------------------------------------------------------------------- */
 
 .thread-header {
-  padding-bottom: 16px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border-muted);
+  padding-bottom: 18px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--border-muted);
 }
 
 .thread-title {
-  font-size: 32px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: var(--fg-default);
-  margin-bottom: 8px;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--fg-heading);
+  margin-bottom: 10px;
   overflow-wrap: break-word;
 }
 
@@ -1245,87 +1657,102 @@ a.thread-row-title:hover { color: var(--accent); text-decoration: none; }
   color: var(--fg-muted);
 }
 
-.timeline { display: flex; flex-direction: column; gap: 16px; }
+.timeline { display: flex; flex-direction: column; gap: 18px; }
 
 .comment {
   position: relative;
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-muted);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
+.comment:hover { box-shadow: var(--shadow-md); border-color: var(--border-default); }
 
 .comment-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: 10px;
+  padding: 11px 20px;
   background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border-default);
-  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+  border-bottom: 1px solid var(--border-muted);
+  border-radius: 13px 13px 0 0;
   font-size: 13px;
   color: var(--fg-muted);
 }
 
 .comment-author {
-  font-weight: 600;
-  color: var(--fg-default);
+  font-weight: 700;
+  color: var(--fg-heading);
 }
-a.comment-author:hover { color: var(--accent); text-decoration: none; }
+a.comment-author:hover { color: var(--nus-orange); text-decoration: none; }
 
 .comment-time { color: var(--fg-muted); font-size: 12px; }
 
+/* flex-wrap is LOAD-BEARING, not cosmetic. v3 added a fifth control to this row
+   (Reply / Accept / Endorse / Remove / …) and five buttons measure 377px, which
+   blows a 375px viewport out to 422px of horizontal scroll. thread.js used to
+   set flex-wrap inline to compensate — two sources of truth, and this one was
+   the wrong one. The rule belongs here; do not remove it. */
 .comment-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-left: auto;
 }
 
-.comment-body { padding: 16px; }
+.comment-body { padding: 20px; }
 .comment-body.markdown-body { font-size: 16px; }
 
 .comment-removed {
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-size: 13px;
   font-style: italic;
   color: var(--fg-muted);
 }
 
 /* accepted answer ------------------------------------------------------- */
-.comment-accepted { border-color: var(--success-emphasis); }
+.comment-accepted {
+  border-color: rgba(46, 163, 107, 0.40);
+  box-shadow: 0 6px 20px rgba(46, 163, 107, 0.10);
+}
 .comment-accepted > .comment-header {
   background: var(--success-subtle);
-  border-bottom-color: var(--success-emphasis);
+  border-bottom-color: rgba(46, 163, 107, 0.30);
 }
 .answer-strip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 16px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--success);
-  background: var(--success-subtle);
-  border-bottom: 1px solid var(--success-emphasis);
+  gap: 7px;
+  padding: 8px 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2ea36b 0%, #4cc285 100%);
+  border-bottom: 0;
 }
-.answer-strip svg { color: var(--success); }
+.answer-strip svg { color: currentColor; }
 .comment-accepted > .answer-strip:first-child {
-  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+  border-radius: 13px 13px 0 0;
 }
 
 /* nested reply ---------------------------------------------------------- */
-.comment-nested { margin-left: 32px; }
+.comment-nested { margin-left: 34px; }
 .comment-nested::before {
   content: "";
   position: absolute;
-  left: -20px;
-  top: -17px;
-  bottom: calc(100% - 22px);
-  width: 13px;
+  left: -22px;
+  top: -19px;
+  bottom: calc(100% - 24px);
+  width: 14px;
   border-left: 2px solid var(--border-default);
   border-bottom: 2px solid var(--border-default);
-  border-bottom-left-radius: 6px;
+  border-bottom-left-radius: 8px;
   pointer-events: none;
 }
 .timeline > .comment-nested:first-child::before { display: none; }
@@ -1334,10 +1761,10 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .vote-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: 5px;
+  padding: 3px 11px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 700;
   line-height: 20px;
   color: var(--fg-muted);
   background: var(--bg-canvas);
@@ -1345,39 +1772,45 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   border-radius: var(--radius-pill);
   cursor: pointer;
   font-variant-numeric: tabular-nums;
-  transition: background-color 80ms linear, border-color 80ms linear, color 80ms linear;
+  transition: all 0.15s ease;
 }
 .vote-btn svg { width: 14px; height: 14px; color: currentColor; }
 .vote-btn:hover {
-  border-color: var(--accent-emphasis);
-  color: var(--accent);
+  border-color: var(--nus-orange);
+  color: var(--nus-orange);
+  background: rgba(255, 107, 53, 0.06);
   text-decoration: none;
+  transform: translateY(-1px);
 }
 .vote-btn.voted {
-  color: var(--accent);
-  background: var(--accent-subtle);
-  border-color: var(--accent-emphasis);
-  font-weight: 600;
+  color: #ffffff;
+  background: var(--grad-orange);
+  border-color: transparent;
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgba(255, 107, 53, 0.25);
 }
+.vote-btn.voted:hover { color: #ffffff; background: var(--grad-orange); }
 .vote-btn:disabled, .vote-btn[aria-disabled="true"] {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
   border-color: var(--border-muted);
+  transform: none;
 }
 
 .accept-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: 5px;
+  padding: 3px 11px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 700;
   line-height: 20px;
   color: var(--fg-muted);
   background: var(--bg-canvas);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 .accept-btn svg { width: 14px; height: 14px; }
 .accept-btn:hover {
@@ -1385,20 +1818,21 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   border-color: var(--success-emphasis);
   background: var(--success-subtle);
   text-decoration: none;
+  transform: translateY(-1px);
 }
 .accept-btn.is-accepted {
-  color: var(--success);
-  background: var(--success-subtle);
-  border-color: var(--success-emphasis);
-  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2ea36b 0%, #4cc285 100%);
+  border-color: transparent;
+  font-weight: 800;
 }
 
 .reply-box {
-  margin-top: 24px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-muted);
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 2px solid var(--border-muted);
 }
-.reply-box .composer { margin-top: 8px; }
+.reply-box .composer { margin-top: 10px; }
 
 
 /* -------------------------------------------------------------------------
@@ -1407,7 +1841,7 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 
 .markdown-body {
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.7;
   color: var(--fg-default);
   overflow-wrap: break-word;
 }
@@ -1429,46 +1863,51 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  margin-top: 24px;
-  margin-bottom: 16px;
-  font-weight: 600;
+  margin-top: 26px;
+  margin-bottom: 14px;
+  font-weight: 700;
   line-height: 1.25;
+  color: var(--fg-heading);
 }
-.markdown-body h1 { font-size: 1.6em; padding-bottom: .3em; border-bottom: 1px solid var(--border-muted); }
-.markdown-body h2 { font-size: 1.35em; padding-bottom: .3em; border-bottom: 1px solid var(--border-muted); }
+.markdown-body h1 { font-size: 1.6em; padding-bottom: .35em; border-bottom: 2px solid var(--border-muted); }
+.markdown-body h2 { font-size: 1.35em; padding-bottom: .35em; border-bottom: 2px solid var(--border-muted); }
 .markdown-body h3 { font-size: 1.15em; }
 .markdown-body h4 { font-size: 1em; }
 .markdown-body h5 { font-size: .9em; }
 .markdown-body h6 { font-size: .85em; color: var(--fg-muted); }
 
-.markdown-body a { color: var(--accent); }
-.markdown-body strong { font-weight: 600; }
+.markdown-body a { color: var(--accent); font-weight: 500; text-decoration: underline; text-decoration-color: var(--border-default); text-underline-offset: 3px; }
+.markdown-body a:hover { color: var(--nus-orange); text-decoration-color: var(--nus-orange); }
+.markdown-body strong { font-weight: 700; color: var(--fg-heading); }
 
 .markdown-body ul, .markdown-body ol { padding-left: 2em; }
-.markdown-body li + li { margin-top: .25em; }
-.markdown-body li > ul, .markdown-body li > ol { margin-top: .25em; margin-bottom: 0; }
+.markdown-body li + li { margin-top: .3em; }
+.markdown-body li > ul, .markdown-body li > ol { margin-top: .3em; margin-bottom: 0; }
 .markdown-body li.task-list-item { list-style: none; }
-.markdown-body .task-list-item input { margin: 0 .4em .25em -1.4em; vertical-align: middle; }
+.markdown-body .task-list-item input { margin: 0 .4em .25em -1.4em; vertical-align: middle; accent-color: var(--nus-orange); }
 
 .markdown-body blockquote {
-  padding: 0 1em;
+  padding: 12px 18px;
   color: var(--fg-muted);
-  border-left: .25em solid var(--border-default);
+  background: var(--accent-subtle);
+  border-left: 3px solid var(--accent-emphasis);
+  border-radius: 6px;
 }
 .markdown-body blockquote > :last-child { margin-bottom: 0; }
 
 .markdown-body hr {
-  height: .25em;
+  height: 2px;
   padding: 0;
-  margin: 24px 0;
-  background-color: var(--border-default);
+  margin: 26px 0;
+  background-color: var(--border-muted);
   border: 0;
 }
 
 .markdown-body img {
   max-width: 100%;
-  border-radius: var(--radius);
+  border-radius: 10px;
   background-color: var(--bg-canvas);
+  box-shadow: 0 8px 24px rgba(0, 61, 124, 0.12);
 }
 
 .markdown-body table {
@@ -1479,36 +1918,45 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   border-spacing: 0;
   border-collapse: collapse;
   font-size: .95em;
+  border-radius: 9px;
 }
 .markdown-body table th,
 .markdown-body table td {
-  padding: 6px 13px;
-  border: 1px solid var(--border-default);
+  padding: 8px 14px;
+  border: 1px solid var(--border-muted);
 }
-.markdown-body table th { font-weight: 600; background: var(--bg-subtle); }
+.markdown-body table th {
+  font-weight: 700;
+  color: #ffffff;
+  background: var(--accent-emphasis);
+  border-color: var(--accent-emphasis);
+}
+html[data-theme="dark"] .markdown-body table th { color: var(--fg-on-emphasis); }
 .markdown-body table tr:nth-child(2n) { background: var(--bg-subtle); }
 
 .markdown-body code,
 .markdown-body tt {
-  padding: .2em .4em;
+  padding: .2em .45em;
   margin: 0;
   font-size: 85%;
   white-space: break-spaces;
-  background-color: var(--neutral-muted);
-  border-radius: var(--radius);
+  color: var(--accent);
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-muted);
+  border-radius: 5px;
   font-family: var(--font-mono);
 }
 
 .markdown-body pre {
   position: relative;
-  padding: 16px;
+  padding: 16px 18px;
   overflow: auto;
   font-size: 85%;
-  line-height: 1.45;
+  line-height: 1.55;
   color: var(--hl-fg);
   background-color: var(--bg-inset);
   border: 1px solid var(--border-muted);
-  border-radius: var(--radius);
+  border-radius: 10px;
 }
 .markdown-body pre code,
 .markdown-body pre tt {
@@ -1520,6 +1968,7 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   line-height: inherit;
   word-wrap: normal;
   white-space: pre;
+  color: inherit;
   background-color: transparent;
   border: 0;
   font-size: 100%;
@@ -1540,22 +1989,23 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 
 .code-copy {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 9px;
+  right: 9px;
   z-index: 2;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--fg-muted);
-  background: var(--bg-subtle);
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--accent);
+  background: var(--bg-canvas);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border-radius: 6px;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 80ms linear;
+  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 .code-copy svg { width: 12px; height: 12px; }
 .markdown-body pre:hover .code-copy,
@@ -1563,11 +2013,11 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .code-copy:focus,
 .code-copy.is-copied,
 .code-copy.copied { opacity: 1; }
-.code-copy:hover { background: var(--btn-hover-bg); color: var(--fg-default); }
+.code-copy:hover { background: rgba(255, 107, 53, 0.06); border-color: var(--nus-orange); color: var(--nus-orange); }
 .code-copy.is-copied,
 .code-copy.copied { color: var(--success); border-color: var(--success-emphasis); }
 
-/* highlight.js token colours (GitHub light/dark, driven by --hl-* vars) --- */
+/* highlight.js token colours (driven by --hl-* vars) --------------------- */
 .hljs { color: var(--hl-fg); background: transparent; }
 .hljs-doctag,
 .hljs-keyword,
@@ -1603,10 +2053,10 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .hljs-selector-tag,
 .hljs-selector-pseudo { color: var(--hl-name); }
 .hljs-subst { color: var(--hl-fg); }
-.hljs-section { color: var(--hl-section); font-weight: 600; }
+.hljs-section { color: var(--hl-section); font-weight: 700; }
 .hljs-bullet { color: var(--hl-bullet); }
 .hljs-emphasis { color: var(--hl-fg); font-style: italic; }
-.hljs-strong { color: var(--hl-fg); font-weight: 600; }
+.hljs-strong { color: var(--hl-fg); font-weight: 700; }
 .hljs-addition { color: var(--hl-add-fg); background-color: var(--hl-add-bg); }
 .hljs-deletion { color: var(--hl-del-fg); background-color: var(--hl-del-bg); }
 
@@ -1617,41 +2067,50 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 
 .composer {
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border: 1.5px solid var(--border-default);
+  border-radius: 12px;
   overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.composer:focus-within { border-color: var(--accent-emphasis); }
+.composer:focus-within {
+  border-color: var(--nus-orange);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
 
 .md-tabs {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 4px;
-  padding: 8px 8px 0;
+  padding: 6px;
   background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-muted);
 }
 .md-tabs > button,
 .md-tabs > a,
 .md-tabs > .md-tab,
 .md-tabs > .tab {
-  padding: 6px 16px;
-  margin-bottom: -1px;
-  font-size: 14px;
-  line-height: 20px;
-  color: var(--fg-default);
+  flex: 0 0 auto;
+  padding: 7px 15px;
+  margin-bottom: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  line-height: 18px;
+  color: var(--fg-muted);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius) var(--radius) 0 0;
+  border: 0;
+  border-radius: 7px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
-.md-tabs > *:hover { background: var(--neutral-muted); text-decoration: none; }
+.md-tabs > *:hover { color: var(--accent); background: transparent; text-decoration: none; }
 .md-tabs > .active,
 .md-tabs > [aria-selected="true"] {
-  font-weight: 500;
+  font-weight: 700;
+  color: var(--accent);
   background: var(--bg-canvas);
-  border-color: var(--border-default);
-  border-bottom-color: var(--bg-canvas);
+  border-color: transparent;
+  box-shadow: 0 1px 6px rgba(0, 61, 124, 0.12);
 }
 .md-tabs > .active:hover,
 .md-tabs > [aria-selected="true"]:hover { background: var(--bg-canvas); }
@@ -1662,7 +2121,7 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  padding: 6px 8px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--border-muted);
   background: var(--bg-canvas);
 }
@@ -1671,31 +2130,32 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 6px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
   font-size: 13px;
   color: var(--fg-muted);
   background: transparent;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: 7px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 .md-toolbar > button:hover,
-.md-toolbar > .md-tool:hover { background: var(--neutral-muted); color: var(--fg-default); }
+.md-toolbar > .md-tool:hover { background: var(--accent-subtle); color: var(--accent); }
 .md-toolbar > button svg { color: currentColor; }
 .md-toolbar .md-tool-sep {
   width: 1px;
   height: 18px;
-  margin: 0 4px;
-  background: var(--border-default);
+  margin: 0 5px;
+  background: var(--border-muted);
 }
 
 .composer .textarea,
 .composer textarea {
   width: 100%;
   min-height: 160px;
-  padding: 12px;
+  padding: 14px 16px;
   border: 0;
   border-radius: 0;
   box-shadow: none;
@@ -1710,14 +2170,15 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 
 .md-preview {
   min-height: 160px;
-  padding: 16px;
+  padding: 18px;
   background: var(--bg-canvas);
   font-size: 16px;
 }
 .md-preview:empty::before {
   content: "Nothing to preview yet.";
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   font-size: 14px;
+  font-style: italic;
 }
 
 .composer-footer {
@@ -1725,7 +2186,7 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   background: var(--bg-subtle);
   border-top: 1px solid var(--border-muted);
 }
@@ -1734,20 +2195,29 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 /* label chip picker (new.html) */
 .chip-picker { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
-  padding: 2px 10px;
-  font-size: 12px;
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
   line-height: 18px;
-  color: var(--fg-default);
+  color: var(--accent);
   background: var(--bg-subtle);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-muted);
   border-radius: var(--radius-pill);
   cursor: pointer;
+  transition: all 0.15s ease;
 }
-.chip:hover { background: var(--neutral-muted); }
+.chip:hover {
+  border-color: var(--nus-orange);
+  color: var(--nus-orange);
+  background: rgba(255, 107, 53, 0.06);
+  transform: translateY(-1px);
+}
 .chip.selected, .chip[aria-pressed="true"] {
-  color: var(--fg-on-emphasis);
-  background: var(--accent-emphasis);
-  border-color: var(--accent-emphasis);
+  color: #ffffff;
+  background: var(--grad-orange);
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(255, 107, 53, 0.25);
 }
 
 
@@ -1758,59 +2228,74 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .slot-day {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin: 20px 0 10px;
-  font-size: 16px;
-  font-weight: 600;
+  gap: 10px;
+  margin: 24px 0 12px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--fg-heading);
 }
-.slot-day small { font-weight: 400; color: var(--fg-muted); }
+.slot-day small { font-weight: 400; color: var(--fg-muted); font-size: 13px; }
 
 .slot-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
 }
 
 .slot-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  text-align: left;
+  gap: 5px;
+  padding: 14px 12px;
+  text-align: center;
+  align-items: center;
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border: 2px solid var(--border-default);
+  border-radius: 12px;
   cursor: pointer;
-  transition: border-color 80ms linear, background-color 80ms linear, box-shadow 80ms linear;
+  transition: all 0.2s ease;
 }
 .slot-card:hover { text-decoration: none; }
 
 .slot-time {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--fg-default);
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--fg-heading);
   font-variant-numeric: tabular-nums;
 }
-.slot-status { font-size: 12px; color: var(--fg-muted); }
+.slot-status {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
 
+.slot-card.open .slot-status { color: var(--success); }
 .slot-card.open:hover {
-  border-color: var(--accent-emphasis);
-  background: var(--accent-subtle);
+  border-color: var(--nus-orange);
+  background: var(--bg-canvas);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(255, 107, 53, 0.16);
 }
 .slot-card.selected {
   border-color: var(--accent-emphasis);
   background: var(--accent-subtle);
-  box-shadow: 0 0 0 2px var(--focus-ring);
+  box-shadow: 0 6px 20px rgba(0, 61, 124, 0.12);
 }
-.slot-card.selected .slot-status { color: var(--accent); font-weight: 600; }
+.slot-card.selected .slot-status { color: var(--accent); font-weight: 800; }
 
 .slot-card.taken {
   cursor: not-allowed;
   background: var(--bg-subtle);
   border-color: var(--border-muted);
   color: var(--fg-muted);
+  opacity: 0.7;
 }
-.slot-card.taken .slot-time { color: var(--fg-muted); text-decoration: line-through; }
+.slot-card.taken .slot-time { color: var(--fg-subtle); text-decoration: line-through; }
+.slot-card.taken .slot-status { color: var(--fg-subtle); }
 
 .slot-card.blocked {
   cursor: not-allowed;
@@ -1828,64 +2313,89 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .slot-card.blocked .slot-time { color: var(--fg-subtle); }
 
 .slot-card.mine {
-  border-color: var(--success-emphasis);
-  background: var(--success-subtle);
+  border-color: var(--nus-orange);
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.06) 0%, var(--bg-canvas) 100%);
+  box-shadow: 0 6px 20px rgba(255, 107, 53, 0.14);
 }
-.slot-card.mine .slot-status { color: var(--success); font-weight: 600; }
+.slot-card.mine .slot-status { color: var(--nus-orange); font-weight: 800; }
 
 .booking-panel {
-  margin-top: 20px;
-  padding: 16px;
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  margin-top: 26px;
+  padding: 22px 26px;
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.05) 0%, var(--bg-canvas) 100%);
+  border: 2px solid rgba(255, 107, 53, 0.25);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(255, 107, 53, 0.08);
 }
-.booking-panel > h3 { margin-bottom: 12px; font-size: 16px; }
+.booking-panel > h3 {
+  display: inline-block;
+  margin-bottom: 14px;
+  padding: 4px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: var(--grad-orange);
+  border-radius: var(--radius-pill);
+}
 
 .cutoff-note {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 11px 14px;
   margin-bottom: 16px;
-  font-size: 13px;
+  font-size: 12.5px;
+  line-height: 1.55;
   color: var(--fg-default);
-  background: var(--attention-subtle);
-  border: 1px solid var(--attention-emphasis);
-  border-radius: var(--radius);
+  background: rgba(255, 107, 53, 0.06);
+  border: 1px solid rgba(255, 107, 53, 0.22);
+  border-radius: 8px;
 }
-.cutoff-note svg { color: var(--attention); margin-top: 2px; }
+.cutoff-note strong { color: var(--nus-orange); }
+.cutoff-note svg { color: var(--nus-orange); margin-top: 3px; }
 .cutoff-note.is-passed {
   background: var(--danger-subtle);
-  border-color: var(--danger-emphasis);
+  border-color: rgba(211, 47, 47, 0.30);
 }
+.cutoff-note.is-passed strong { color: var(--danger); }
 .cutoff-note.is-passed svg { color: var(--danger); }
 
 .my-booking-card {
-  padding: 16px;
-  background: var(--success-subtle);
-  border: 1px solid var(--success-emphasis);
-  border-radius: var(--radius);
+  padding: 20px 24px;
+  background: var(--bg-canvas);
+  border: 2px solid var(--border-default);
+  border-radius: 14px;
+  box-shadow: var(--shadow-md);
 }
 .my-booking-card h3 {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  font-size: 16px;
-  color: var(--fg-default);
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--fg-heading);
 }
+.my-booking-card h3 svg { color: var(--success); }
 .my-booking-card dl {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 4px 12px;
-  margin: 12px 0;
+  gap: 6px 14px;
+  margin: 14px 0;
   font-size: 13px;
 }
-.my-booking-card dt { color: var(--fg-muted); }
-.my-booking-card dd { margin: 0; color: var(--fg-default); }
-.my-booking-card ul { margin: 8px 0 12px; padding-left: 20px; font-size: 13px; }
-.my-booking-card li { margin-bottom: 4px; }
+.my-booking-card dt {
+  color: var(--fg-subtle);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.my-booking-card dd { margin: 0; color: var(--fg-default); font-weight: 500; }
+.my-booking-card ul { margin: 10px 0 14px; padding-left: 20px; font-size: 13px; }
+.my-booking-card li { margin-bottom: 5px; }
 
 
 /* -------------------------------------------------------------------------
@@ -1895,54 +2405,61 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .tab-bar {
   display: flex;
   gap: 4px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--border-default);
+  margin-bottom: 22px;
+  padding: 4px;
+  background: var(--bg-subtle);
+  border-bottom: 0;
+  border-radius: 9px;
   overflow-x: auto;
   scrollbar-width: none;
 }
 .tab-bar::-webkit-scrollbar { display: none; }
 
 .tab {
-  padding: 8px 14px;
-  margin-bottom: -1px;
-  font-size: 14px;
+  padding: 8px 15px;
+  margin-bottom: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
   white-space: nowrap;
-  color: var(--fg-default);
+  color: var(--fg-muted);
   background: transparent;
   border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: var(--radius) var(--radius) 0 0;
+  border-radius: 7px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
-.tab:hover { background: var(--neutral-muted); text-decoration: none; }
+.tab:hover { color: var(--accent); background: transparent; text-decoration: none; }
 .tab.active, .tab[aria-selected="true"] {
-  font-weight: 600;
-  border-bottom-color: var(--underline-active);
-  background: transparent;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--bg-canvas);
+  box-shadow: 0 1px 6px rgba(0, 61, 124, 0.12);
 }
 
 .stat-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 26px;
 }
 
 .stat-card {
-  padding: 14px 16px;
+  padding: 15px 18px;
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-muted);
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(0, 61, 124, 0.05);
 }
 .stat-card .stat-num,
 .stat-card .stat-value,
 .stat-card > strong,
 .stat-card > b {
   display: block;
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.2;
-  color: var(--fg-default);
+  font-size: 27px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--fg-heading);
   font-variant-numeric: tabular-nums;
 }
 .stat-card .stat-label,
@@ -1950,24 +2467,33 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .stat-card > span {
   display: block;
   margin-top: 2px;
-  font-size: 12px;
-  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
 }
 .stat-card.is-good .stat-num { color: var(--success); }
-.stat-card.is-warn .stat-num { color: var(--attention); }
+.stat-card.is-warn .stat-num { color: var(--nus-orange); }
 
 /* charts (pure CSS / inline SVG) ---------------------------------------- */
 .chart {
-  padding: 16px;
+  padding: 20px;
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-  margin-bottom: 16px;
+  border: 1px solid var(--border-muted);
+  border-radius: 14px;
+  box-shadow: 0 4px 14px rgba(0, 61, 124, 0.05);
+  margin-bottom: 18px;
 }
 .chart > h3, .chart > .chart-title {
-  margin-bottom: 12px;
-  font-size: 14px;
-  font-weight: 600;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--nus-orange);
+  border-bottom: 1px solid var(--border-muted);
 }
 
 /* horizontal bars */
@@ -1975,19 +2501,20 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   display: grid;
   grid-template-columns: minmax(90px, 30%) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
+  gap: 12px;
+  margin-bottom: 8px;
   font-size: 12px;
 }
 .chart-label {
   color: var(--fg-muted);
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .chart-track {
   height: 10px;
-  background: var(--neutral-muted);
+  background: var(--accent-subtle);
   border-radius: var(--radius-pill);
   overflow: hidden;
 }
@@ -1995,14 +2522,16 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   display: block;
   height: 100%;
   min-width: 2px;
-  background: var(--accent-emphasis);
+  background: var(--grad-progress);
   border-radius: var(--radius-pill);
+  transition: width 0.4s ease;
 }
-.chart-fill.is-success { background: var(--success-emphasis); }
-.chart-fill.is-attention { background: var(--attention-emphasis); }
+.chart-fill.is-success { background: linear-gradient(90deg, #2ea36b 0%, #4cc285 100%); }
+.chart-fill.is-attention { background: var(--grad-orange); }
 .chart-fill.is-muted { background: var(--fg-subtle); }
 .chart-value {
-  color: var(--fg-muted);
+  color: var(--accent);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   min-width: 28px;
   text-align: right;
@@ -2015,7 +2544,7 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   gap: 6px;
   height: 140px;
   padding-top: 8px;
-  border-bottom: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-muted);
 }
 .chart-col {
   flex: 1 1 0;
@@ -2029,10 +2558,10 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .chart-col .bar {
   width: 100%;
   min-height: 2px;
-  background: var(--accent-emphasis);
-  border-radius: 3px 3px 0 0;
+  background: var(--grad-navy);
+  border-radius: 4px 4px 0 0;
 }
-.chart-col .bar.is-success { background: var(--success-emphasis); }
+.chart-col .bar.is-success { background: linear-gradient(180deg, #4cc285 0%, #2ea36b 100%); }
 .chart-col .bar.is-muted { background: var(--fg-subtle); }
 .chart-xaxis {
   display: flex;
@@ -2052,8 +2581,8 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 10px;
+  gap: 14px;
+  margin-top: 12px;
   font-size: 12px;
   color: var(--fg-muted);
 }
@@ -2061,8 +2590,8 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   display: inline-block;
   width: 10px;
   height: 10px;
-  margin-right: 4px;
-  border-radius: 2px;
+  margin-right: 5px;
+  border-radius: 3px;
   background: var(--accent-emphasis);
   vertical-align: -1px;
 }
@@ -2073,23 +2602,25 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 /* dense tables ---------------------------------------------------------- */
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-muted);
+  border-radius: 12px;
   background: var(--bg-canvas);
+  box-shadow: 0 4px 14px rgba(0, 61, 124, 0.05);
 }
-.table-wrap > .admin-table { border: 0; border-radius: 0; }
+.table-wrap > .admin-table { border: 0; border-radius: 0; box-shadow: none; }
 
 .admin-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-muted);
+  border-radius: 12px;
+  overflow: hidden;
 }
 .admin-table th,
 .admin-table td {
-  padding: 8px 12px;
+  padding: 10px 14px;
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--border-muted);
@@ -2098,31 +2629,42 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   position: sticky;
   top: 0;
   z-index: 1;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: #ffffff;
   white-space: nowrap;
-  background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border-default);
+  background: var(--accent-emphasis);
+  border-bottom: 0;
 }
+html[data-theme="dark"] .admin-table thead th { color: var(--fg-on-emphasis); }
+.admin-table tbody tr { transition: background 0.15s ease; }
 .admin-table tbody tr:hover { background: var(--bg-subtle); }
 .admin-table tbody tr:last-child td { border-bottom: 0; }
 .admin-table td.nowrap, .admin-table th.nowrap { white-space: nowrap; }
 .admin-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .admin-table tr.is-deleted td { opacity: 0.55; text-decoration: line-through; }
-.admin-table .row-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.admin-table .row-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 
 .danger-zone {
-  margin-top: 24px;
-  padding: 16px;
-  background: var(--bg-canvas);
-  border: 1px solid var(--danger-emphasis);
-  border-radius: var(--radius);
+  margin-top: 26px;
+  padding: 20px 24px;
+  background: var(--danger-subtle);
+  border: 2px solid rgba(211, 47, 47, 0.30);
+  border-radius: 14px;
 }
 .danger-zone > h3 {
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: var(--danger);
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 4px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: linear-gradient(135deg, #c94f4f 0%, #e07070 100%);
+  border-radius: var(--radius-pill);
 }
 .danger-zone p { font-size: 13px; color: var(--fg-muted); }
 
@@ -2133,34 +2675,35 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 
 #toasts {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  right: 20px;
+  bottom: 20px;
   z-index: 200;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-end;
   pointer-events: none;
-  max-width: calc(100vw - 32px);
+  max-width: calc(100vw - 40px);
 }
 
 .toast {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  max-width: 380px;
-  padding: 10px 12px;
+  gap: 10px;
+  max-width: 390px;
+  padding: 12px 15px;
   font-size: 13px;
+  line-height: 1.55;
   color: var(--fg-default);
   background: var(--bg-overlay);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-muted);
   border-left: 3px solid var(--accent-emphasis);
-  border-radius: var(--radius);
+  border-radius: 10px;
   box-shadow: var(--shadow-lg);
   pointer-events: auto;
-  animation: toast-in 140ms ease-out;
+  animation: toast-in 180ms ease-out;
 }
-.toast.is-leaving { animation: toast-out 140ms ease-in forwards; }
+.toast.is-leaving { animation: toast-out 160ms ease-in forwards; }
 .toast-success { border-left-color: var(--success-emphasis); }
 .toast-success .toast-icon { color: var(--success); }
 .toast-error { border-left-color: var(--danger-emphasis); }
@@ -2170,20 +2713,20 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .toast-close {
   flex: 0 0 auto;
   padding: 0 2px;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   background: none;
   border: 0;
   line-height: 1;
 }
-.toast-close:hover { color: var(--fg-default); }
+.toast-close:hover { color: var(--danger); }
 
 @keyframes toast-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes toast-out {
   from { opacity: 1; transform: none; }
-  to   { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 0; transform: translateY(10px); }
 }
 
 .modal-backdrop {
@@ -2193,43 +2736,44 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 20px;
   background: var(--overlay-backdrop);
-  animation: fade-in 120ms ease-out;
+  animation: fade-in 160ms ease-out;
 }
 .modal {
   width: 100%;
-  max-width: 440px;
+  max-width: 460px;
   background: var(--bg-overlay);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-muted);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
   overflow: hidden;
-  animation: modal-in 140ms ease-out;
+  animation: modal-in 180ms ease-out;
 }
 .modal-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  font-size: 14px;
-  font-weight: 600;
+  gap: 10px;
+  padding: 14px 20px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg-heading);
   border-bottom: 1px solid var(--border-muted);
 }
 .modal-header .modal-close { margin-left: auto; }
-.modal-body { padding: 16px; font-size: 14px; }
+.modal-body { padding: 20px; font-size: 14px; }
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 14px 20px;
   background: var(--bg-subtle);
   border-top: 1px solid var(--border-muted);
 }
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes modal-in {
-  from { opacity: 0; transform: translateY(-8px) scale(.98); }
+  from { opacity: 0; transform: translateY(-10px) scale(.98); }
   to   { opacity: 1; transform: none; }
 }
 
@@ -2237,18 +2781,18 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 40px 24px;
+  gap: 10px;
+  padding: 44px 24px;
   text-align: center;
   color: var(--fg-muted);
   background: var(--bg-canvas);
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius);
+  border: 2px dashed var(--border-default);
+  border-radius: 14px;
 }
-.empty-state svg { width: 28px; height: 28px; color: var(--fg-subtle); }
-.empty-state h3 { font-size: 15px; color: var(--fg-default); }
+.empty-state svg { width: 30px; height: 30px; color: var(--fg-subtle); }
+.empty-state h3 { font-size: 16px; color: var(--fg-heading); }
 .empty-state p { max-width: 46ch; font-size: 13px; }
-.thread-list .empty-state { border: 0; border-radius: 0; }
+.thread-list .empty-state { border: 2px dashed var(--border-default); border-radius: 14px; }
 
 .spinner {
   display: inline-block;
@@ -2256,7 +2800,7 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
   height: 16px;
   vertical-align: -3px;
   border: 2px solid var(--border-default);
-  border-top-color: var(--accent);
+  border-top-color: var(--nus-orange);
   border-radius: 50%;
   animation: spin 700ms linear infinite;
 }
@@ -2268,7 +2812,7 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 }
 .spinner-block {
   display: block;
-  margin: 40px auto;
+  margin: 44px auto;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -2276,25 +2820,26 @@ a.comment-author:hover { color: var(--accent); text-decoration: none; }
 .tooltip::after {
   content: attr(data-tooltip);
   position: absolute;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 7px);
   left: 50%;
   z-index: 100;
   transform: translateX(-50%);
-  padding: 4px 8px;
+  padding: 5px 10px;
   font-size: 11px;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.4;
   white-space: nowrap;
   color: #ffffff;
-  background: #24292f;
-  border-radius: var(--radius);
+  background: var(--nus-navy);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 61, 124, 0.25);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 80ms linear;
+  transition: opacity 0.15s ease;
 }
-html[data-theme="dark"] .tooltip::after { background: #6e7681; }
+html[data-theme="dark"] .tooltip::after { background: #274264; }
 @media (prefers-color-scheme: dark) {
-  html:not([data-theme="light"]) .tooltip::after { background: #6e7681; }
+  html:not([data-theme="light"]) .tooltip::after { background: #274264; }
 }
 .tooltip:hover::after, .tooltip:focus-visible::after { opacity: 1; }
 
@@ -2308,89 +2853,104 @@ html[data-theme="dark"] .tooltip::after { background: #6e7681; }
   flex-direction: column;
   align-items: center;
   min-height: 100vh;
-  padding: 40px 16px 64px;
-  background: var(--bg-subtle);
+  padding: 60px 16px 64px;
+  background: transparent;   /* body::before tint field shows through */
 }
 
 .login-topbar {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 16px;
+  right: 16px;
 }
 
 .login-logo {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 28px;
   text-align: center;
 }
-.login-logo svg { width: 44px; height: 44px; color: var(--fg-default); }
-.login-logo h1 { font-size: 20px; font-weight: 400; }
+.login-logo svg { width: 46px; height: 46px; color: var(--nus-orange); }
+.login-logo img { height: 52px; width: auto; }
+.login-logo h1 {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--fg-heading);
+  letter-spacing: -0.3px;
+}
 
 .login-card {
   width: 100%;
-  max-width: 340px;
-  padding: 20px 16px;
+  max-width: 380px;
+  padding: 28px 26px;
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
 }
 .login-card h2 {
-  margin-bottom: 12px;
-  font-size: 15px;
-  font-weight: 600;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--nus-orange);
+  border-bottom: 1px solid var(--border-muted);
 }
-.login-card .btn-block { margin-top: 4px; }
+.login-card .btn-block { margin-top: 6px; }
 
 .login-note {
   width: 100%;
-  max-width: 340px;
-  margin-top: 16px;
-  padding: 12px 16px;
+  max-width: 380px;
+  margin-top: 18px;
+  padding: 14px 18px;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--fg-muted);
   text-align: center;
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-muted);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
 }
-.login-note a { font-weight: 500; }
+.login-note a { font-weight: 600; }
 .login-note.is-mock {
   color: var(--fg-default);
-  background: var(--attention-subtle);
-  border-color: var(--attention-emphasis);
+  background: rgba(255, 107, 53, 0.05);
+  border: 1px solid rgba(255, 107, 53, 0.22);
   text-align: left;
 }
 .login-note code {
-  padding: .15em .4em;
+  padding: .18em .45em;
   font-size: 12px;
-  background: var(--neutral-muted);
-  border-radius: var(--radius);
+  color: var(--accent);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-muted);
+  border-radius: 5px;
 }
 
 .code-input {
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px;
   font-family: var(--font-mono);
   font-size: 26px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.2;
   letter-spacing: .38em;
   text-align: center;
   text-indent: .38em;      /* keeps the digits optically centred */
-  color: var(--fg-default);
+  color: var(--fg-heading);
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border: 1.5px solid var(--border-default);
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.code-input::placeholder { color: var(--border-default); }
+.code-input::placeholder { color: var(--fg-subtle); opacity: 0.5; }
 .code-input:focus {
   outline: none;
-  border-color: var(--accent-emphasis);
+  border-color: var(--nus-orange);
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 .code-input::-webkit-outer-spin-button,
@@ -2399,26 +2959,29 @@ html[data-theme="dark"] .tooltip::after { background: #6e7681; }
 .login-steps {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 14px;
-  font-size: 12px;
-  color: var(--fg-muted);
+  gap: 7px;
+  margin-bottom: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
 }
 .login-steps .dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--border-default);
 }
-.login-steps .dot.active { background: var(--accent-emphasis); }
+.login-steps .dot.active { background: var(--nus-orange); }
 
 .login-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 14px;
+  gap: 10px;
+  margin-top: 16px;
   font-size: 12px;
 }
 
@@ -2435,7 +2998,7 @@ html[data-theme="dark"] .tooltip::after { background: #6e7681; }
 .text-right { text-align: right; }
 .text-center { text-align: center; }
 .fs-small { font-size: 12px; }
-.fw-bold { font-weight: 600; }
+.fw-bold { font-weight: 700; }
 .hidden, [hidden] { display: none !important; }
 
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -2447,21 +3010,25 @@ html[data-theme="dark"] .tooltip::after { background: #6e7681; }
 .mt-16 { margin-top: 16px; } .mt-24 { margin-top: 24px; }
 .mb-0 { margin-bottom: 0; } .mb-8 { margin-bottom: 8px; } .mb-16 { margin-bottom: 16px; }
 .mb-24 { margin-bottom: 24px; }
-.divider { height: 1px; margin: 16px 0; background: var(--border-muted); }
+.divider { height: 1px; margin: 18px 0; background: var(--border-muted); }
 .box {
   background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-muted);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
 }
 .box-header {
-  padding: 10px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border-default);
-  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+  padding: 12px 18px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--nus-orange);
+  background: transparent;
+  border-bottom: 1px solid var(--border-muted);
+  border-radius: 11px 11px 0 0;
 }
-.box-body { padding: 16px; }
+.box-body { padding: 18px; }
 
 .sr-only {
   position: absolute;
@@ -2475,60 +3042,1048 @@ html[data-theme="dark"] .tooltip::after { background: #6e7681; }
 
 
 /* -------------------------------------------------------------------------
-   18. Responsive — usable down to 375px
+   18. Roles & endorsement (v3 §9.1, §9.2)
+   ---------------------------------------------------------------------- */
+
+/* THE RULE THIS SECTION EXISTS TO ENFORCE:
+     FILLED  = accepted answer   (green,  strongest — the ASKER said "this
+               solved it")
+     OUTLINED = endorsed          (navy,   second   — the INSTRUCTOR said
+               "this is correct")
+   They are different statements about a post and must never be confusable, so
+   endorsement deliberately uses neither green nor the orange gradient. A post
+   that is BOTH shows the green filled strip on top and the navy outlined strip
+   directly beneath it — two visibly different claims, stacked. */
+
+/* --- instructor identity ----------------------------------------------- */
+
+/* Byline badge. FILLED navy so it is unmistakable at a glance halfway down a
+   crowded thread; .badge metrics are restated rather than inherited so the
+   class also works when emitted on its own (same idiom as .badge-answered). */
+.badge-instructor {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 16px;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
+  color: #ffffff;
+  background: var(--grad-navy);
+  border: 1px solid transparent;
+}
+.badge-instructor svg { width: 12px; height: 12px; color: currentColor; }
+
+/* Thread-card badge. OUTLINED navy — on a list of 30 rows a second filled navy
+   pill would shout as loudly as the byline badge does inside a thread, and the
+   two mean different things ("this person is the instructor" vs "the instructor
+   has replied in here"). */
+.badge-instructor-replied {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 16px;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid var(--border-default);
+}
+.badge-instructor-replied svg { width: 12px; height: 12px; color: currentColor; }
+
+/* --- endorsement ------------------------------------------------------- */
+
+/* The literal rgba() here cannot be expressed in a token (there is no navy
+   "border tint" token), so — and ONLY here — the dark palette is duplicated,
+   swapping #003D7C for the dark theme's #9dc4ee. Keep the two dark blocks
+   below in sync with each other, exactly as the palette blocks at the top of
+   this file are. */
+.comment-endorsed {
+  border-color: rgba(0, 61, 124, 0.35);
+  box-shadow: 0 6px 20px rgba(0, 61, 124, 0.08);
+}
+.endorse-strip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-bottom: 1px solid rgba(0, 61, 124, 0.25);
+}
+.endorse-strip svg { width: 14px; height: 14px; color: currentColor; }
+
+html[data-theme="dark"] .comment-endorsed {
+  border-color: rgba(157, 196, 238, 0.35);
+  box-shadow: 0 6px 20px rgba(157, 196, 238, 0.10);
+}
+html[data-theme="dark"] .endorse-strip {
+  border-bottom-color: rgba(157, 196, 238, 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .comment-endorsed {
+    border-color: rgba(157, 196, 238, 0.35);
+    box-shadow: 0 6px 20px rgba(157, 196, 238, 0.10);
+  }
+  html:not([data-theme="light"]) .endorse-strip {
+    border-bottom-color: rgba(157, 196, 238, 0.25);
+  }
+}
+
+/* Rounding: whichever strip is first gets the card's top corners. When a post
+   is both accepted and endorsed the green strip is first and the navy strip
+   sits square underneath it. */
+.comment > .endorse-strip:first-child { border-radius: 13px 13px 0 0; }
+.comment-accepted > .answer-strip + .endorse-strip { border-radius: 0; }
+
+/* Sits beside .accept-btn in .comment-actions — same metrics, navy instead of
+   green, so the two controls read as a matched pair of different acts. */
+.endorse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  color: var(--accent);
+  background: var(--bg-canvas);
+  border: 1px solid rgba(0, 61, 124, 0.30);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.endorse-btn svg { width: 14px; height: 14px; }
+.endorse-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-emphasis);
+  background: var(--accent-subtle);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+.endorse-btn.is-endorsed {
+  color: var(--fg-on-emphasis);
+  background: var(--accent-emphasis);
+  border-color: transparent;
+  font-weight: 800;
+}
+.endorse-btn:disabled, .endorse-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+html[data-theme="dark"] .endorse-btn { border-color: rgba(157, 196, 238, 0.30); }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .endorse-btn { border-color: rgba(157, 196, 238, 0.30); }
+}
+
+
+/* -------------------------------------------------------------------------
+   19. Thread state banners + .inert-note (v3 §9.3, §9.3a)
+   ---------------------------------------------------------------------- */
+
+/* These read as STATES, not errors: a bordered informational strip, never
+   --danger, never an alert icon on a red wash. "This thread is locked" is a
+   normal thing for a thread to be. */
+.thread-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  flex-wrap: wrap;
+}
+.thread-banner svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin-top: 1px;
+  color: currentColor;
+}
+.thread-banner strong { color: inherit; font-weight: 700; }
+/* the trailing link is allowed to wrap onto its own line at 375px */
+.thread-banner a { color: inherit; font-weight: 600; text-decoration: underline; }
+.thread-banner a:hover { color: var(--nus-orange); }
+
+.thread-banner-locked {
+  background: var(--attention-subtle);
+  color: var(--attention);
+  border-color: var(--attention-emphasis);
+}
+.thread-banner-duplicate {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-color: var(--border-default);
+}
+.thread-banner-archived {
+  background: var(--neutral-muted);
+  color: var(--fg-muted);
+  border-style: dashed;
+}
+
+.badge-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 16px;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
+  color: var(--attention);
+  background: var(--attention-subtle);
+  border: 1px solid var(--attention-emphasis);
+}
+.badge-locked svg { width: 12px; height: 12px; color: currentColor; }
+
+.badge-duplicate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 16px;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid var(--border-default);
+}
+.badge-duplicate svg { width: 12px; height: 12px; color: currentColor; }
+
+/* an archived row is still readable and still clickable — just quieter, and it
+   stops volunteering the hover nudge that says "there is something new here" */
+.thread-row.is-archived { opacity: 0.72; }
+.thread-row.is-archived:hover {
+  transform: none;
+  border-left-color: transparent;
+  box-shadow: none;
+}
+
+/* page-level strip above #toolbar on index.html — .notice-box shape */
+.archive-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 13px 16px;
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--fg-default);
+  background: var(--attention-subtle);
+  border: 0;
+  border-left: 3px solid var(--attention-emphasis);
+  border-radius: 6px;
+}
+.archive-banner svg { width: 16px; height: 16px; flex: 0 0 16px; margin-top: 2px; color: var(--attention); }
+.archive-banner strong { display: block; margin-bottom: 2px; color: var(--attention); }
+
+/* NOTE (v3 §9.3): pointer-events:none is a VISUAL lock. Anyone can defeat it
+   from devtools in four seconds. The flow-side write guards are the
+   enforcement; never ship this as the only mechanism. */
+.composer.is-disabled { opacity: 0.6; pointer-events: none; }
+.composer-locked-note {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+/* --- .inert-note: the one shared "not switched on yet" style ------------ */
+
+/* Every frontend owner emits this. The DASHED border is the whole point — it
+   reads as "provisional", not as a fault, and is visually distinct from
+   .notice-box (solid, navy left rule) and from anything --danger or
+   --attention tinted. A backend that has not been imported yet must produce a
+   quiet, complete-looking page, not a red one. */
+.inert-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  background: var(--neutral-muted);
+  border: 1px dashed var(--border-muted);
+  border-radius: var(--radius);
+}
+.inert-note svg { width: 15px; height: 15px; flex: 0 0 15px; margin-top: 2px; color: var(--fg-subtle); }
+.inert-note a { color: var(--accent); font-weight: 600; }
+.inert-note-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fg-default);
+}
+
+
+/* -------------------------------------------------------------------------
+   20. Messages — unread signals, panes, bubbles (v3 §9.4, §9.5, §9.6)
+   ---------------------------------------------------------------------- */
+
+/* --- unread signals ----------------------------------------------------- */
+
+/* Visible without being nagging: orange (the accent the eye already scans for
+   on this site) at 20px, no animation, no pulse, and it simply is not there at
+   zero. The accessible name lives on the parent anchor's aria-label — the
+   counter itself is aria-hidden, so a screen reader hears "Messages, 3 unread"
+   once instead of a stray "3". */
+.counter.nav-counter {
+  min-width: 20px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  color: #ffffff;
+  background: var(--nus-orange);
+  border-color: transparent;
+}
+
+/* Text wrapper inside EVERY nav anchor. No desktop styling — it exists so the
+   ≤479px rule in §24 can hide the label and leave an icon-only nav that still
+   fits at 375px with Messages and Search added. */
+.app-nav-label { display: inline; }
+
+.unread-dot {
+  display: inline-block;
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--nus-orange);
+}
+
+/* --- messages layout ---------------------------------------------------- */
+
+.msg-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  min-height: 60vh;
+}
+.msg-layout > .msg-pane-thread { border-left: 1px solid var(--border-muted); }
+
+.msg-pane-list {
+  overflow-y: auto;
+  max-height: calc(100vh - var(--header-height) - 200px);
+  padding-right: 12px;
+  min-width: 0;
+}
+
+.msg-pane-thread {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.msg-conv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* a real <button> or <a> — never a div with a click handler (§10.9) */
+.msg-conv-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--fg-default);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.msg-conv-item:hover {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  text-decoration: none;
+  transform: translateX(3px);
+}
+.msg-conv-item.is-active {
+  background: var(--accent-subtle);
+  box-shadow: inset 3px 0 0 var(--nus-orange);
+  color: var(--accent);
+}
+/* display:block on all three is not cosmetic — the name and the preview are
+   two stacked lines, and if F4 emits <span> (which reads naturally for a
+   fragment of a button's label) inline layout runs them together as
+   "Wei Mingthanks!". Caught in the browser, not by reading. */
+.msg-conv-body { display: block; flex: 1 1 auto; min-width: 0; }
+.msg-conv-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.msg-conv-preview {
+  display: block;
+  font-size: 12px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.msg-conv-time {
+  font-size: 11px;
+  color: var(--fg-subtle);
+  white-space: nowrap;
+  margin-left: auto;
+}
+.msg-conv-item.is-unread .msg-conv-name {
+  font-weight: 700;
+  color: var(--fg-heading);
+}
+
+.msg-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border-muted);
+}
+.msg-header h2, .msg-header .msg-peer-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg-heading);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* focus moves here when a conversation opens (tabindex="-1"), so it needs a
+   visible ring like everything else */
+.msg-header h2:focus-visible, .msg-header [tabindex]:focus-visible {
+  outline: 2px solid var(--nus-orange);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.msg-back { display: none; }   /* mobile only — see §24 */
+
+.msg-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 240px;
+}
+
+.msg-day-sep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+.msg-day-sep::before, .msg-day-sep::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border-muted);
+}
+
+.msg-poll-stalled {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 16px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--attention-subtle);
+  color: var(--attention);
+  border: 1px solid var(--attention-emphasis);
+  border-radius: var(--radius-lg);
+}
+.msg-poll-stalled svg { width: 16px; height: 16px; flex: 0 0 16px; }
+
+/* REQUIRED, persistent. Chat is private but it is NOT anonymous, and the one
+   place a student will forget that is the composer. */
+.msg-privacy-note {
+  margin: 0 16px 8px;
+  padding: 8px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  background: var(--attention-subtle);
+  border-radius: var(--radius);
+}
+
+/* --- bubbles + optimistic states ---------------------------------------- */
+
+.msg-bubble {
+  max-width: min(560px, 78%);
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.msg-bubble.is-mine {
+  align-self: flex-end;
+  background: var(--grad-navy);
+  color: #ffffff;
+  border-bottom-right-radius: 6px;
+}
+/* required: .markdown-body's OWN colours are unreadable on navy. `color:#fffff`
+   on .msg-bubble.is-mine does NOT reach them — .markdown-body (:1815) sets
+   color:var(--fg-default) on itself, and h1-h6/strong set --fg-heading, all of
+   which beat inheritance. In light theme that is #2c3e50 on the navy gradient:
+   1.02:1, i.e. an invisible message. messages.js was masking this with an
+   inline color:inherit; the CSS is the source of truth, so the base colour,
+   headings, strong and blockquote are all restated here alongside a and code. */
+.msg-bubble.is-mine .markdown-body,
+.msg-bubble.is-mine .markdown-body h1,
+.msg-bubble.is-mine .markdown-body h2,
+.msg-bubble.is-mine .markdown-body h3,
+.msg-bubble.is-mine .markdown-body h4,
+.msg-bubble.is-mine .markdown-body h5,
+.msg-bubble.is-mine .markdown-body h6,
+.msg-bubble.is-mine .markdown-body strong,
+.msg-bubble.is-mine .markdown-body blockquote {
+  color: #ffffff;
+}
+.msg-bubble.is-mine .markdown-body blockquote {
+  background: rgba(255, 255, 255, 0.12);
+  border-left-color: rgba(255, 255, 255, 0.55);
+}
+.msg-bubble.is-mine a {
+  color: #ffffff;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.6);
+}
+.msg-bubble.is-mine code {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+.msg-bubble.is-theirs {
+  align-self: flex-start;
+  background: var(--bg-subtle);
+  color: var(--fg-default);
+  border: 1px solid var(--border-muted);
+  border-bottom-left-radius: 6px;
+}
+.msg-bubble-meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--fg-subtle);
+}
+.msg-bubble.is-mine .msg-bubble-meta { color: rgba(255, 255, 255, 0.75); }
+
+.msg-bubble.is-pending { opacity: 0.62; }
+
+/* .is-mine.is-failed is written explicitly or the navy fill wins on
+   specificity and a failed message looks delivered */
+.msg-bubble.is-failed,
+.msg-bubble.is-mine.is-failed {
+  background: var(--danger-subtle);
+  color: var(--fg-default);
+  border: 1px solid var(--danger-emphasis);
+}
+.msg-bubble.is-mine.is-failed .msg-bubble-meta { color: var(--danger); }
+.msg-bubble.is-mine.is-failed a { color: var(--accent); }
+.msg-bubble.is-mine.is-failed code { background: var(--bg-inset); color: var(--fg-default); }
+/* …and the same restatement in reverse: a failed bubble drops the navy fill for
+   --danger-subtle, so the white .markdown-body colours set above have to come
+   back off it or the failed message goes invisible the other way. Same
+   selectors, one class deeper, so these win. */
+.msg-bubble.is-mine.is-failed .markdown-body,
+.msg-bubble.is-mine.is-failed .markdown-body h1,
+.msg-bubble.is-mine.is-failed .markdown-body h2,
+.msg-bubble.is-mine.is-failed .markdown-body h3,
+.msg-bubble.is-mine.is-failed .markdown-body h4,
+.msg-bubble.is-mine.is-failed .markdown-body h5,
+.msg-bubble.is-mine.is-failed .markdown-body h6,
+.msg-bubble.is-mine.is-failed .markdown-body strong {
+  color: var(--fg-default);
+}
+.msg-bubble.is-mine.is-failed .markdown-body blockquote {
+  color: var(--fg-muted);
+  background: var(--accent-subtle);
+  border-left-color: var(--accent-emphasis);
+}
+
+.msg-retry {
+  display: inline;
+  padding: 0;
+  margin-left: 8px;
+  background: none;
+  border: 0;
+  color: var(--danger);
+  font-weight: 600;
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.msg-composer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  background: var(--bg-canvas);
+  border-top: 1px solid var(--border-muted);
+}
+.msg-composer .textarea {
+  min-height: 44px;
+  max-height: 9.5em;      /* ~6 rows; messages.js auto-grows to this cap */
+  resize: none;
+}
+
+
+/* -------------------------------------------------------------------------
+   21. Search page (v3 §9.7)
+   ---------------------------------------------------------------------- */
+
+.search-bar {
+  position: sticky;
+  top: calc(var(--header-height) + 8px);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 0;
+  margin-bottom: 6px;
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.search-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  width: 100%;
+}
+.search-filters.is-collapsed { display: none; }
+
+.search-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.search-filter-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+/* shown only ≤767px — see §24 */
+.search-filters-toggle { display: none; }
+
+.search-summary {
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin-bottom: 10px;
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* .search-result reuses .thread-row geometry entirely — emitters write
+   class="thread-row search-result", so there is nothing to restate here. */
+.search-result-snippet {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* used INSTEAD of a bare <mark> so the highlight is themable — <mark>'s UA
+   yellow is unreadable on the dark canvas */
+.search-hit {
+  background: rgba(255, 107, 53, 0.18);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 600;
+}
+
+.search-chip-clear { margin-left: auto; }
+
+
+/* -------------------------------------------------------------------------
+   22. Composer add-ons — similar threads, templates, uploads (v3 §9.8)
+   ---------------------------------------------------------------------- */
+
+.similar-panel {
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: var(--bg-subtle);
+}
+.similar-panel.is-loading { opacity: 0.7; }
+.similar-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+.similar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  list-style: none;
+  padding: 0;
+}
+.similar-item { display: flex; gap: 8px; align-items: flex-start; }
+.similar-icon { flex: 0 0 14px; width: 14px; height: 14px; margin-top: 2px; color: var(--fg-subtle); }
+.similar-item.is-answered .similar-icon { color: var(--success); }
+.similar-item a { font-size: 14px; font-weight: 600; color: var(--fg-heading); }
+.similar-item a:hover { color: var(--nus-orange); }
+.similar-meta { font-size: 11px; color: var(--fg-muted); }
+.similar-dismiss { margin-top: 8px; }
+
+.template-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.template-hint {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+.template-reset { margin-left: auto; }
+
+.upload-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+}
+.upload-tray:empty { display: none; }
+
+.upload-item {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border-muted);
+  background: var(--bg-inset);
+}
+.upload-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.upload-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: var(--border-muted);
+}
+.upload-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--grad-progress);
+  transition: width 0.2s ease;
+}
+
+.upload-item.is-error { border-color: var(--danger-emphasis); }
+.upload-error {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--danger);
+  background: var(--danger-subtle);
+  text-align: center;
+}
+
+/* the visible control is 20px; the ::before gives it the ≥44px hit area a
+   thumb actually needs, without a 44px dark blob over the thumbnail */
+.upload-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--overlay-backdrop);
+  color: #ffffff;
+  cursor: pointer;
+}
+.upload-remove::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+.upload-remove svg { width: 12px; height: 12px; position: relative; }
+.upload-remove:hover { background: var(--danger); color: #ffffff; }
+
+.upload-dropzone.is-dragover {
+  outline: 2px dashed var(--nus-orange);
+  outline-offset: 2px;
+}
+
+.upload-note {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+/* The post-sanitise attachment placeholder inside rendered markdown.
+   min-height is LOAD-BEARING: attach.get takes 10-21 s, and without a
+   reserved box every post reflows as each image lands. */
+/* SPECIFICITY TRAP, already paid for once: `.markdown-body img` (:1879) is
+   (0,1,1) and sets max-width:100%. A bare `.clinic-att` is (0,1,0) and LOSES,
+   and .clinic-att only ever appears inside .markdown-body — so the 420px cap
+   never applied from CSS at all, and only markdown.js's inline style was
+   holding it. The two extra selectors below are what make this rule win; do
+   not "simplify" them away. */
+.clinic-att,
+.markdown-body .clinic-att,
+.markdown-body img.clinic-att {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  min-height: 120px;
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-muted);
+  object-fit: contain;
+}
+/* NOTE for F5: ::after does not render on a replaced element (<img>). The
+   spinner slot below therefore only paints if .clinic-att.is-loading is on a
+   WRAPPER; the dashed border on the img itself is the fallback that always
+   works. Both are here on purpose. */
+.clinic-att.is-loading {
+  position: relative;
+  border-style: dashed;
+  background-image: none;
+}
+.clinic-att.is-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--nus-orange);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+.clinic-att.is-error {
+  border-color: var(--danger-emphasis);
+  min-height: 60px;
+}
+.clinic-att-caption { font-size: 11px; color: var(--danger); }
+
+/* blocked remote image: .inert-note shape, inline. The link TEXT is the
+   original URL — the reader decides, having seen where it goes. */
+.ext-img-blocked {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  background: var(--neutral-muted);
+  border: 1px dashed var(--border-muted);
+  border-radius: var(--radius);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.ext-img-blocked a { color: var(--accent); font-weight: 600; }
+
+
+/* -------------------------------------------------------------------------
+   23. Math — KaTeX (v3 §9.9)
+   ---------------------------------------------------------------------- */
+
+.katex-inline { display: inline-block; vertical-align: baseline; }
+
+/* overflow-x is MANDATORY: it is the only thing stopping a long equation from
+   blowing out the page width on a phone. */
+.katex-block {
+  display: block;
+  margin: 16px 0;
+  padding: 4px 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.katex-error {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--danger);
+  background: var(--danger-subtle);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* color: inherit is what makes KaTeX theme-correct. Without it KaTeX ships
+   its own near-black and every formula is unreadable on the dark canvas. */
+.markdown-body .katex { font-size: 1.05em; color: inherit; }
+.markdown-body .katex-display { margin: 0; }
+
+
+/* -------------------------------------------------------------------------
+   24. Responsive — usable down to 375px
    ---------------------------------------------------------------------- */
 
 @media (max-width: 1011px) {
-  :root { --sidebar-width: 260px; }
+  :root { --sidebar-width: 250px; }
   .thread-title { font-size: 26px; }
+  .main { padding: 26px 26px 28px; }
 }
 
 @media (max-width: 767px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
     gap: 20px;
-    padding-top: 16px;
+    padding-top: 18px;
   }
   /* main always first, sidebar stacks below — regardless of markup order */
   .layout > .main, .layout-reverse > .main { grid-column: 1; grid-row: 1; }
   .layout > .sidebar, .layout-reverse > .sidebar { grid-column: 1; grid-row: 2; }
 
-  .app-header-inner { padding: 8px 12px; min-height: 0; row-gap: 4px; }
+  /* sidebar can't be sticky once it is below the fold */
+  .sidebar { position: static; max-height: none; overflow: visible; }
+
+  .app-header-inner { padding: 10px 14px; min-height: 0; row-gap: 6px; }
   .brand { font-size: 15px; }
+  .brand-logo { height: 34px; }
   .app-nav {
     order: 3;
     width: 100%;
     flex: 1 0 100%;
     gap: 2px;
-    margin: 0 -12px -1px;
-    padding: 0 12px;
+    margin: 0 -14px -1px;
+    padding: 0 14px;
   }
-  .app-nav a, .app-nav button { padding: 8px 10px; }
+  .app-nav a, .app-nav button { padding: 9px 11px; }
   .header-actions { margin-left: auto; }
-  .user-menu-btn .user-menu-name { display: none; }
+  /* The display name STAYS here. It is the only visible word telling you this
+     control is yours and that Sign out lives behind it, and hiding it from
+     768px down meant every tablet and most phones showed an unlabelled disc.
+     Clamped instead — .user-menu-name already ellipsises — and it only
+     disappears at ≤479px, together with the nav labels, where the row really
+     does run out of width. */
+  .user-menu-btn { max-width: 148px; }
+  .user-menu-btn .user-menu-name { max-width: 74px; }
 
-  .container { padding-right: 12px; padding-left: 12px; }
+  .container { padding-right: 14px; padding-left: 14px; }
+
+  .main { padding: 20px 18px 22px; border-radius: var(--radius-lg); }
+  .page-head h1 { font-size: 21px; }
 
   .thread-title { font-size: 22px; }
-  .thread-row { padding: 10px 12px; }
+  .thread-row { padding: 13px 14px; }
+  .thread-row:hover { transform: none; }
   .thread-row-stats {
+    flex-direction: row;
     width: 100%;
-    padding-left: 28px;
+    padding-left: 48px;
     padding-top: 6px;
+    align-items: center;
   }
   .thread-row { flex-wrap: wrap; }
   .thread-row-main { flex: 1 1 60%; }
+  .cat-item:hover, .lb-row:hover { transform: none; }
 
-  .comment-body { padding: 12px; }
-  .comment-header { padding: 8px 12px; }
+  .comment-body { padding: 14px; }
+  .comment-header { padding: 10px 14px; }
   .comment-nested { margin-left: 16px; }
   .comment-nested::before { left: -12px; width: 8px; }
 
   .slot-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-  .slot-card { padding: 10px; }
+  .slot-card { padding: 11px 8px; }
+  .booking-panel { padding: 16px 16px; }
 
   .stat-cards { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
-  .stat-card { padding: 10px 12px; }
+  .stat-card { padding: 11px 13px; }
   .stat-card .stat-num, .stat-card .stat-value, .stat-card > strong { font-size: 22px; }
 
   /* tables scroll horizontally even without a .table-wrap parent */
@@ -2543,20 +4098,78 @@ html[data-theme="dark"] .tooltip::after { background: #6e7681; }
   .admin-table thead th { position: static; }
 
   .chart-row { grid-template-columns: minmax(70px, 38%) minmax(0, 1fr) auto; }
+  .chart { padding: 16px; }
 
   #toasts { right: 12px; left: 12px; bottom: 12px; align-items: stretch; }
   .toast { max-width: none; }
 
   .markdown-body, .comment-body.markdown-body, .md-preview { font-size: 15px; }
+
+  /* --- v3: messages collapses to ONE pane ------------------------------
+     Below 767px only the pane matching the URL is shown. messages.js signals
+     which one by putting .is-thread-open on .msg-layout when
+     messages.html?c=<id> is open, and removing it for the bare list URL.
+     If it never does, both panes simply stack — degraded, never broken. */
+  .msg-layout {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  .msg-layout > .msg-pane-thread { border-left: 0; }
+  .msg-pane-list { max-height: none; padding-right: 0; }
+  .msg-layout.is-thread-open > .msg-pane-list { display: none; }
+  .msg-conv-item { min-height: 44px; }
+  .msg-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .msg-log { padding: 12px; }
+  .msg-composer, .msg-privacy-note { padding-left: 12px; padding-right: 12px; }
+  .msg-privacy-note { margin-left: 0; margin-right: 0; }
+  .msg-bubble { max-width: 88%; }
+
+  /* --- v3: search filters fold behind a toggle -------------------------
+     Nothing is hidden invisibly — the toggle carries a .counter of how many
+     filters are currently active. */
+  .search-filters-toggle { display: inline-flex; }
+  .search-bar { top: calc(var(--header-height) + 4px); }
+}
+
+/* --- v3: icon-only nav. Discussions / Search / Messages / Clinic booking /
+   Admin with full labels horizontally scrolls at 375px, so below 480px the
+   label is visually hidden and the accessible name survives on the anchor's
+   aria-label (ui.js always writes one). .nav-counter stays visible. --- */
+@media (max-width: 479px) {
+  .app-nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .app-nav a { padding: 9px; }
+  /* Icons-only header at this width: the nav labels above go, and so does the
+     account name. The caret is what still reads as "this opens a menu", and
+     ui.js's aria-label is what names it for a screen reader. */
+  .user-menu-btn { max-width: none; }
+  .user-menu-btn .user-menu-name { display: none; }
 }
 
 @media (max-width: 400px) {
-  .container { padding-right: 10px; padding-left: 10px; }
+  /* v3: upload thumbnails go two-per-row instead of four cramped ones */
+  .upload-tray {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .upload-item { width: 100%; height: 96px; }
+  .container { padding-right: 12px; padding-left: 12px; }
   .thread-title { font-size: 20px; }
   .slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .btn { padding: 5px 12px; }
+  .btn { padding: 8px 14px; }
   .code-input { font-size: 22px; letter-spacing: .3em; text-indent: .3em; }
-  .login-card { padding: 16px 14px; }
+  .login-card { padding: 20px 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2565,11 +4178,582 @@ html[data-theme="dark"] .tooltip::after { background: #6e7681; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  body::before { animation: none !important; }
   .spinner { animation-duration: 1200ms !important; animation-iteration-count: infinite !important; }
+  .cat-item:hover, .lb-row:hover, .thread-row:hover,
+  .btn:hover, .chip:hover, .pill:hover,
+  .msg-conv-item:hover, .endorse-btn:hover { transform: none !important; }
+  .clinic-att.is-loading::after {
+    animation-duration: 1200ms !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 @media print {
   .app-header, .sidebar, #toasts, .composer, .btn { display: none !important; }
   .layout { display: block; }
   body { background: #fff; color: #000; }
+  body::before { display: none; }
+  .main { box-shadow: none; padding: 0; }
+}
+
+
+/* -------------------------------------------------------------------------
+   25. Floating chat button (FAB) — assets/js/chat-fab.js
+
+   A 56px circular button (48px below 767px) parked on a vertical edge of the
+   viewport, carrying the 'comment-discussion' octicon on the navy gradient.
+   The element is CREATED BY JAVASCRIPT and only when chat actually exists —
+   see the gate at the top of chat-fab.js. That gate is now SATISFIED on the
+   live site (MSG_URL has been pasted into config.js), so unlike when this
+   section was first written these rules do render for signed-in users. They
+   still have to degrade silently, because a signed-out visitor, a tenant whose
+   chat_enabled is FALSE, and messages.html itself all get no button at all.
+
+   POSITIONING CONTRACT WITH THE JS
+     .chat-fab is position:fixed and chat-fab.js writes `left` and `top` inline,
+     in px, on mount / drag / snap / resize. Nothing here may set left/top/
+     right/bottom on .chat-fab or the two will fight. `transform` is left free
+     for the hover lift and the drag scale for the same reason.
+     chat-fab.js reads --fab-gap off :root with getComputedStyle, so the edge
+     gap below is the single source of truth for both files and the 767px
+     override needs no duplicate breakpoint in JavaScript.
+
+   Z-INDEX: 150. The stack already in use is -1 (body tint) · 1 · 2 · 5 · 60
+   (.menu-dropdown) · 100 (.tooltip) · 200 (#toasts) · 300 (.modal-backdrop) ·
+   1000 (.app-header). 150 puts the button above all page content and above a
+   tooltip that happens to open near it, and BELOW the toast stack and the
+   modal backdrop — a confirm dialog or an error toast must never end up
+   arguing with a decorative button for the same pixels. The header is 1000 and
+   the JS clamps the button below its measured bottom edge, so they cannot meet.
+
+   COLOUR / CONTRAST (measured, not assumed — sRGB relative luminance, WCAG 2.1)
+     white #ffffff on --nus-navy #003D7C ............ 10.73:1   AAA
+     white #ffffff on --nus-navy-lift #0052a3 ....... 7.68:1    AAA
+   Both ends of --grad-navy pass AA comfortably, so the icon is legible wherever
+   it falls on the gradient.
+     white #ffffff on --nus-orange #FF6B35 .......... 2.84:1    FAILS AA
+   which is why the count badge does NOT use --nus-orange as a text background.
+   --fab-badge-bg below is the deepest step of the same orange ramp (hue 16°,
+   identical to --nus-orange's) that carries white 11px bold text at 5.18:1.
+   The pulsing GLOW is still --nus-orange: it is a shadow, not text, and has no
+   contrast obligation. Do not "fix" the badge back to --nus-orange.
+
+   NON-TEXT CONTRAST — THE BUTTON'S OWN EDGE (WCAG 2.1 SC 1.4.11, needs 3:1)
+   The figures above are the ICON ON the button and they were never the problem.
+   1.4.11 also governs the boundary that tells you a UI component is there at
+   all, and in dark mode that boundary is --grad-navy against --bg-page. Both
+   ends of the gradient fail, badly:
+     #003D7C on --bg-page #0b1626 ................... 1.69:1   FAILS 1.4.11
+     #0052a3 on --bg-page #0b1626 ................... 2.36:1   FAILS 1.4.11
+     #003D7C on --bg-canvas #101d31 ................. 1.58:1   FAILS 1.4.11
+     #0052a3 on --bg-canvas #101d31 ................. 2.20:1   FAILS 1.4.11
+   A navy disc on a navy-black page is a smudge. The drop shadow does not save
+   it either — in dark it is black on near-black (see --fab-shadow below).
+
+   THE FIX IS A RING, NOT A NEW BUTTON COLOUR. Re-theming --grad-navy in dark
+   would repaint three other components that use it (§16, §19, §21) and would
+   stop the button being NUS navy, which is the whole point of it. Instead
+   --fab-ring paints the outermost 2px of the disc, so the EDGE is what carries
+   the contrast while the face stays brand navy:
+     --accent-emphasis #4d8fd6 on --bg-page  #0b1626 . 5.37:1   PASSES 1.4.11
+     --accent-emphasis #4d8fd6 on --bg-canvas #101d31  5.00:1   PASSES 1.4.11
+   (sRGB relative luminance, WCAG 2.1 formula, same method as the figures above.
+   Recompute rather than trust these if you change either token.)
+   In LIGHT the edge already passes on its own — #003D7C on --bg-page #ffffff is
+   10.73:1, the first line of this comment — so --fab-ring is `transparent`
+   there and the ::before rule below draws nothing at all.
+   ---------------------------------------------------------------------- */
+
+:root {
+  --fab-size: 56px;
+  --fab-icon: 24px;
+  --fab-gap: 16px;               /* read by chat-fab.js — see above */
+
+  /* Elevation and glow are separate layers of one box-shadow list so the pulse
+     keyframes can swap only the glow. THE THREE GLOW TOKENS MUST EACH CONTAIN
+     THE SAME NUMBER OF SHADOWS (2), because box-shadow only interpolates
+     between lists of equal length — mismatch them and the pulse becomes a hard
+     cut instead of a fade. */
+  --fab-shadow: 0 6px 18px rgba(0, 61, 124, 0.28);
+  --fab-shadow-lift: 0 12px 26px rgba(0, 61, 124, 0.34);
+  --fab-glow-idle: 0 0 0 4px rgba(0, 61, 124, 0.07),
+                   0 0 18px 2px rgba(0, 61, 124, 0.16);
+  --fab-glow-unread: 0 0 0 4px rgba(255, 107, 53, 0.14),
+                     0 0 16px 2px rgba(255, 107, 53, 0.30);
+  --fab-glow-unread-max: 0 0 0 9px rgba(255, 107, 53, 0.05),
+                         0 0 26px 6px rgba(255, 107, 53, 0.44);
+
+  --fab-badge-bg: #C2410C;       /* see the contrast note above */
+
+  /* WCAG 1.4.11 edge ring — see the contrast block above. LIGHT needs none:
+     navy on white is 10.73:1 at the boundary already, and a ring would only
+     add a second, weaker edge inside a perfectly good one. */
+  --fab-ring: transparent;
+}
+
+/* --- DARK: copy A, explicit override.  A navy drop shadow is invisible on a
+   navy canvas, so elevation switches to the same black-based ramp the
+   --shadow-* tokens use in dark, and the glows come up slightly to survive the
+   darker surround. KEEP IN SYNC WITH COPY B BELOW (see the file header, ~:25). */
+html[data-theme="dark"] {
+  --fab-shadow: 0 6px 18px rgba(0, 0, 0, 0.50);
+  --fab-shadow-lift: 0 12px 26px rgba(0, 0, 0, 0.58);
+  --fab-glow-idle: 0 0 0 4px rgba(157, 196, 238, 0.08),
+                   0 0 20px 2px rgba(77, 143, 214, 0.22);
+  --fab-glow-unread: 0 0 0 4px rgba(255, 107, 53, 0.18),
+                     0 0 18px 2px rgba(255, 107, 53, 0.34);
+  --fab-glow-unread-max: 0 0 0 10px rgba(255, 107, 53, 0.06),
+                         0 0 30px 7px rgba(255, 107, 53, 0.50);
+
+  /* The button's boundary. 5.37:1 on --bg-page, 5.00:1 on --bg-canvas — see
+     the contrast block above for the arithmetic and for why the FACE is left
+     on --grad-navy. The glows above are decoration and cannot be counted
+     towards 1.4.11: they are semi-transparent and they animate. */
+  --fab-ring: var(--accent-emphasis);
+}
+
+/* --- DARK: copy B, system preference with no manual override --- */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) {
+    --fab-shadow: 0 6px 18px rgba(0, 0, 0, 0.50);
+    --fab-shadow-lift: 0 12px 26px rgba(0, 0, 0, 0.58);
+    --fab-glow-idle: 0 0 0 4px rgba(157, 196, 238, 0.08),
+                     0 0 20px 2px rgba(77, 143, 214, 0.22);
+    --fab-glow-unread: 0 0 0 4px rgba(255, 107, 53, 0.18),
+                       0 0 18px 2px rgba(255, 107, 53, 0.34);
+    --fab-glow-unread-max: 0 0 0 10px rgba(255, 107, 53, 0.06),
+                           0 0 30px 7px rgba(255, 107, 53, 0.50);
+
+    /* KEEP IN SYNC WITH COPY A — same value, same reason. */
+    --fab-ring: var(--accent-emphasis);
+  }
+}
+
+.chat-fab {
+  position: fixed;
+  left: 0;                       /* placeholder — chat-fab.js writes both inline */
+  top: 0;
+  z-index: 150;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--fab-size);
+  height: var(--fab-size);
+  padding: 0;
+  color: var(--fg-on-emphasis);
+  background: var(--grad-navy);
+  border: 0;
+  border-radius: 50%;
+  box-shadow: var(--fab-shadow), var(--fab-glow-idle);
+  cursor: pointer;
+  /* the drag would otherwise scroll the page under the finger; this, not
+     preventDefault(), is what actually stops it on modern engines */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 160ms ease, box-shadow 220ms ease;
+}
+
+/* Placement is deferred until the viewport can actually be measured — a pane
+   that is not compositing yet reports innerWidth 0 and every clamp collapses to
+   the top-left corner. chat-fab.js takes this class off the moment it has real
+   numbers. visibility (not display) so the element still has a layout box to
+   measure. */
+.chat-fab.is-unplaced { visibility: hidden; }
+
+/* The WCAG 1.4.11 edge ring (dark only — --fab-ring is transparent in light).
+   A PSEUDO-ELEMENT, NOT A BORDER AND NOT A BOX-SHADOW, and both of those are
+   deliberate:
+     - `border` on .chat-fab would eat 2px out of a 56px box that the JS
+       measures with offsetWidth for its clamps, and would fight the
+       positioning contract above;
+     - box-shadow is already a four-token composition here AND is overwritten
+       wholesale by clinic-fab-pulse, whose computed value beats any normal
+       declaration — a ring parked in that list would blink out for two-thirds
+       of every pulse cycle, which is precisely when it must not.
+   inset 0 rather than a negative inset so the ring IS the outer edge of the
+   disc: the outermost 2px of what the user sees is --fab-ring, which is the
+   thing 1.4.11 is asking about. Absolutely positioned, so it is not a flex
+   item of the inline-flex parent and cannot shove the icon off centre. */
+.chat-fab::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border: 2px solid var(--fab-ring);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.chat-fab .octicon {
+  width: var(--fab-icon);
+  height: var(--fab-icon);
+  vertical-align: middle;        /* §2 sets text-bottom globally on svg */
+  stroke-width: 1.5;
+}
+
+.chat-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--fab-shadow-lift), var(--fab-glow-idle);
+}
+.chat-fab:active { transform: translateY(0); }
+
+.chat-fab:focus-visible {
+  /* matches the site-wide ring at §2 (:focus-visible), one step further out so
+     it clears the ambient glow instead of disappearing into it */
+  outline: 2px solid var(--nus-orange);
+  outline-offset: 3px;
+}
+
+/* Mid-gesture: no transition at all, or the button lags the finger by 160ms
+   and feels like it is on elastic. */
+.chat-fab.is-dragging {
+  cursor: grabbing;
+  transition: none;
+  transform: scale(1.06);
+}
+
+/* Post-release edge snap. chat-fab.js removes this class ~220ms later; the
+   duration here and SNAP_MS there are a matched pair. */
+.chat-fab.is-snapping {
+  transition: left 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+              top 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+              transform 160ms ease,
+              box-shadow 220ms ease;
+}
+
+/* --- the unread pulse ------------------------------------------------------
+   ~2.8s, low amplitude, ease-in-out. This is a teaching platform: the button
+   should catch a glance across a lecture theatre, not nag. Anything under ~2s
+   or with a bigger spread delta starts to read as an alarm.
+
+   Cascade note: an animation's computed value beats a normal declaration, so
+   while this is running .chat-fab:hover's box-shadow does NOT apply. That is
+   deliberate — the hover lift is carried by transform, which the animation
+   does not touch, so hover still responds. */
+@keyframes clinic-fab-pulse {
+  0%, 100% { box-shadow: var(--fab-shadow), var(--fab-glow-unread); }
+  50%      { box-shadow: var(--fab-shadow), var(--fab-glow-unread-max); }
+}
+
+.chat-fab.has-unread {
+  box-shadow: var(--fab-shadow), var(--fab-glow-unread);
+  animation: clinic-fab-pulse 2800ms ease-in-out infinite;
+}
+
+/* --- the count badge -------------------------------------------------------
+   aria-hidden in the DOM: the count is on the button's aria-label instead, so
+   a screen reader says "Messages, 3 unread" once rather than "3" and then the
+   label. chat-fab.js caps the printed text at "9+"; the aria-label always
+   carries the true number. */
+.chat-fab-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;             /* 20px box - 2x2px border, box-sizing:border-box */
+  text-align: center;
+  color: var(--fg-on-emphasis);
+  background: var(--fab-badge-bg);
+  /* the ring is the page background, not a colour, so the badge reads as a
+     separate chip in both themes without a second rule */
+  border: 2px solid var(--bg-canvas);
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+}
+/* [hidden] is display:none by UA rule, but only at the weight of a UA
+   declaration — spell it out or any display above would win. */
+.chat-fab-badge[hidden] { display: none; }
+
+/* --- keeping out of the way ------------------------------------------------
+   1. #toasts is fixed at the same bottom-right corner (§15, and full-bleed at
+      the bottom below 767px). Lift the stack clear whenever the button is
+      parked on that side; when it has been dragged to the left edge there is
+      no overlap and the toasts stay where §15 put them.
+   2. .composer / .msg-composer sit at the very bottom of the document flow on
+      thread.html and new.html, so at full scroll the Post button lands under
+      the button at 375px. A spacer the height of the button plus its margins
+      lets the page scroll far enough that it never does. It is on body::after
+      rather than .main's padding so it adds scroll room OUTSIDE the white card
+      instead of visibly changing the card on every page.
+
+      MEASURED at 375x812 on thread.html?id=t_welcome, right-docked:
+        - the spacer computes to 76px (48 + 28);
+        - AT FULL SCROLL the "Comment" submit sits at viewport y 498-534 with
+          217px of clearance above the button's 751-799 band. The spacer does
+          what it claims.
+        - RESIDUAL, recorded rather than fixed: "Comment" spans x 241-330 and
+          the right dock spans x 315-363, so they overlap by 15px of the
+          button's 89px width. While the page is being scrolled THROUGH the
+          band (scrollTop ~2348-2432 of 2649) that 15px strip of the submit's
+          right edge is behind the FAB. 74px of the control stays clickable and
+          the resting position after typing — full scroll — is clear, so this
+          is not offset any further: moving the FAB off the corner to buy back
+          15px would cost the docked-corner convention everywhere else. On
+          new.html there is no overlap at all ("Start discussion" is x 45-174,
+          entirely clear of the right dock).
+      A LEFT-docked button (x 12-60) does clip the left edge of new.html's
+      "Start discussion" (x 45-174) by the same order; that dock is the user's
+      own choice and is one drag away from being undone. */
+body.has-chat-fab.chat-fab-right #toasts {
+  bottom: calc(var(--fab-size) + 36px);
+}
+
+body.has-chat-fab::after {
+  content: '';
+  display: block;
+  height: calc(var(--fab-size) + 28px);
+  pointer-events: none;
+}
+
+/* --- reduced motion --------------------------------------------------------
+   MANDATORY, and not covered well enough by the blanket rule at §24: that one
+   forces animation-duration to 0.01ms and iteration-count to 1, which stops the
+   movement but leaves the glow wherever the single 0.01ms pass dropped it.
+   Kill the animation outright and pin the glow to its brightest step, so a
+   reduced-motion user still gets the "something is waiting" signal — just
+   static. Same specificity as the rules above but later in the file, plus
+   !important to beat §24's !important shorthand. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-fab { transition: none !important; }
+  .chat-fab:hover { transform: none !important; }
+  .chat-fab.is-dragging { transform: none !important; }
+  .chat-fab.has-unread {
+    animation: none !important;
+    box-shadow: var(--fab-shadow), var(--fab-glow-unread-max);
+  }
+
+  /* REDUCED MOTION MEANS NO MOTION, NOT NO FEEDBACK — and the two rules above
+     had quietly collapsed into the second thing.
+     Killing `transform` takes away the hover lift, which is correct. But
+     `.chat-fab.has-unread` is (0,2,0), exactly the same specificity as
+     `.chat-fab:hover`, and it is later in the file — so the moment there is an
+     unread count it also wins the box-shadow, and hovering the button changed
+     NOTHING AT ALL. No lift, no shadow, no colour: a control that does not
+     acknowledge the pointer reads as disabled, and reduced motion is a setting
+     a lot of the people who most need clear affordances are running.
+     The two replacements below are static state changes — a luminance step and
+     a deeper elevation shadow. Nothing translates, nothing scales, nothing
+     animates (transition is none:important two rules up, so both land in one
+     frame), so this is compliant with the media query's actual promise.
+     `.chat-fab.has-unread:hover` is (0,3,0) and is what finally beats the
+     unread box-shadow; the plain `:hover` is restated with it so the pair
+     cannot drift apart if either is edited later. */
+  .chat-fab:hover,
+  .chat-fab.has-unread:hover { filter: brightness(1.18); }
+  .chat-fab:hover { box-shadow: var(--fab-shadow-lift), var(--fab-glow-idle); }
+  .chat-fab.has-unread:hover {
+    box-shadow: var(--fab-shadow-lift), var(--fab-glow-unread-max);
+  }
+}
+
+/* --- small screens ---------------------------------------------------------
+   48px still clears the 44px minimum touch target, and the tighter gap keeps
+   it off the edge-swipe zone. --fab-gap is read by chat-fab.js, so changing it
+   here is enough — there is no breakpoint in the JavaScript. */
+@media (max-width: 767px) {
+  :root {
+    --fab-size: 48px;
+    --fab-icon: 21px;
+    --fab-gap: 12px;
+  }
+  .chat-fab-badge {
+    min-width: 18px;
+    height: 18px;
+    font-size: 10px;
+    line-height: 14px;
+  }
+  /* §24 makes #toasts FULL-BLEED at the bottom (left:12 right:12), so down here
+     the left edge is no refuge — a button docked left collides with the toast
+     stack exactly as much as one docked right. Lift it whichever side the
+     button is on. Measured at 375x667: without this the stack's bottom lands at
+     y=655 against a button occupying 595-643. */
+  body.has-chat-fab #toasts {
+    bottom: calc(var(--fab-size) + 36px);
+  }
+}
+
+@media print {
+  .chat-fab { display: none !important; }
+  body.has-chat-fab::after { display: none !important; }
+}
+
+/* =========================================================================
+   26. Chat panel — assets/js/chat-panel.js
+
+   The popover the FAB opens, so answering a DM stops costing you your place in
+   the thread you were reading. Created by JavaScript, on the same gate as the
+   button (see canOpen() in chat-panel.js), and only ever one per document.
+
+   THIS SECTION IS THE SHELL AND NOTHING ELSE. Everything inside the panel —
+   .msg-log, .msg-bubble and its .is-mine/.is-theirs/.is-pending/.is-failed
+   states, .msg-bubble-meta, .msg-retry, .msg-composer, .msg-conv-*,
+   .msg-privacy-note, .msg-poll-stalled, .unread-dot, .is-unread — is already
+   specified in §20 and is reused verbatim. A message bubble must look identical
+   in the panel and on messages.html, and the way to guarantee that is to have
+   one set of rules rather than two.
+
+   LAYERING, deliberately between the two things it sits amongst:
+     .chat-fab      z-index 150
+     .chat-panel    z-index 160   <- above the button it belongs to
+     #toasts        z-index 200   <- still on top, so an error is never hidden
+   The sticky header is z-index 1000 and this is bottom-anchored with a bounded
+   height at every width, so the two never meet and there is no fight to lose.
+
+   DOCK-AWARE: chat-fab.js already mirrors the button's side onto <body> as
+   .chat-fab-left / .chat-fab-right, so the panel opens on whichever edge the
+   button was dragged to without a line of JavaScript positioning it.
+   ========================================================================= */
+
+.chat-panel {
+  position: fixed;
+  z-index: 160;
+  display: none;
+  flex-direction: column;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  /* Bounded, and bottom-anchored: see the layering note above. */
+  height: min(70vh, 560px);
+  bottom: calc(var(--fab-size) + var(--fab-gap) + 16px);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.chat-panel.is-open { display: flex; }
+
+/* Default dock is right; .chat-fab-left mirrors it. Both are written out rather
+   than relying on a default, so a body carrying neither class (the button has
+   not been placed yet) still lands somewhere sane. */
+.chat-panel,
+body.chat-fab-right .chat-panel { right: var(--fab-gap); left: auto; }
+body.chat-fab-left .chat-panel { left: var(--fab-gap); right: auto; }
+
+.chat-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border-muted);
+}
+.chat-panel-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-heading);
+}
+.chat-panel-full {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.chat-panel-back,
+.chat-panel-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 32px is under the 44px touch minimum, so the padding below carries the hit
+     area out to 44 without making the icons look oversized. The ≤767px block
+     takes them to a full 44x44. */
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
+  color: var(--fg-muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.chat-panel-back:hover,
+.chat-panel-close:hover { background: var(--btn-active-bg); color: var(--fg-default); }
+/* The 'chevron-right' glyph is the only chevron in ui.js's ICONS, so Back
+   borrows it and turns it round rather than adding a fourth icon for one use. */
+.chat-panel-back svg { transform: rotate(180deg); }
+.chat-panel-back[hidden] { display: none; }
+
+.chat-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+/* §20 gives .msg-log a 16px pad and a 240px min-height for a full page pane.
+   Inside a 380px popover both are wrong: the min-height forces a scrollbar onto
+   an empty conversation, and the padding wastes width a bubble needs. */
+.chat-panel .msg-log { padding: 10px; min-height: 0; }
+.chat-panel .msg-bubble { max-width: 88%; }
+
+.chat-panel-foot {
+  flex: 0 0 auto;
+  background: var(--bg-canvas);
+  border-top: 1px solid var(--border-muted);
+}
+.chat-panel-foot[hidden] { display: none; }
+/* The composer is sticky on the full page because it sits at the end of a long
+   document; here it is already pinned by the flex column, and leaving it sticky
+   makes it fight its own container. */
+.chat-panel .msg-composer {
+  position: static;
+  padding: 8px 10px;
+  border-top: 0;
+}
+.chat-panel .msg-privacy-note {
+  margin: 8px 10px 0;
+  font-size: 11px;
+}
+
+/* The cadence line. It is not decoration: messages.send takes 10-21s to
+   acknowledge, a write needs up to ~30s to become readable, and the poll runs
+   every 90s — so a bubble UI that said nothing would promise instant delivery
+   it cannot give. Small, permanent, and next to a manual check. */
+.chat-panel-cadence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 8px;
+  font-size: 11px;
+  color: var(--fg-subtle);
+}
+.chat-panel-cadence > span { flex: 1 1 auto; min-width: 0; }
+
+@media (max-width: 767px) {
+  /* A bottom sheet, still bottom-anchored so it never reaches the header. */
+  .chat-panel,
+  body.chat-fab-right .chat-panel,
+  body.chat-fab-left .chat-panel {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    max-width: none;
+    height: min(78vh, 560px);
+  }
+  .chat-panel-back,
+  .chat-panel-close { width: 44px; height: 44px; }
+  /* The button would sit on top of its own sheet at this width. */
+  body.has-chat-panel .chat-fab { display: none; }
+  /* §24 puts #toasts full-bleed at the bottom, which is exactly where the sheet
+     now is. Toasts stay on top (z-index 200) but must clear it. */
+  body.has-chat-panel #toasts { bottom: calc(min(78vh, 560px) + 16px); }
+}
+
+@media print {
+  .chat-panel { display: none !important; }
 }

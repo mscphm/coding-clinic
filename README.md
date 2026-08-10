@@ -13,6 +13,10 @@ Precision Health and Medicine × Artificial Intelligence.
 - **Ask anonymously** — any question or reply can be posted anonymously. Classmates see
   "Anonymous"; the real identity is available only to the instructor, and only in the
   admin export.
+- **Direct messages** — one-to-one chat with pasted screenshot support, and unread badges
+  across the site.
+- **Maths and code** — LaTeX rendering via KaTeX and syntax highlighting via highlight.js,
+  both vendored locally.
 - **Clinic booking** — weekly 20-minute slots. Booking requires linking one of your own
   threads, so every live session starts from a written problem statement.
 - **Instructor dashboard** — moderation, attendance and outcome tracking, activity charts,
@@ -37,7 +41,11 @@ authenticated API (Power Automate flows) backed by a workbook that stays inside 
 instructor's institutional OneDrive. Without a valid session token, the API returns nothing.
 
 Built with vanilla HTML/CSS/JavaScript — no framework, no build step. Third-party libraries
-(marked, DOMPurify, highlight.js) are vendored in `assets/vendor/`.
+(marked, DOMPurify, highlight.js, KaTeX) are vendored in `assets/vendor/`.
 
-To run it locally against seeded demo data, set `MOCK: true` in `assets/js/config.js` and
-serve the folder over HTTP.
+`assets/js/config.js` is the only file you edit to go live: it holds the four flow URLs and
+the `MOCK` switch. To run against seeded demo data instead, set `MOCK: true` and serve the
+folder over HTTP — sign in with any email address; the code is always `000000`.
+
+`design-mock.html` is a self-contained visual reference for the design system and is not
+part of the running site.

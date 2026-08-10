@@ -1,12 +1,12 @@
 NUS Coding Clinic — third-party front-end libraries
 ====================================================
 
-These three files are vendored (committed to the repo) on purpose: the site must work
+These files are vendored (committed to the repo) on purpose: the site must work
 from GitHub Pages with no build step, no npm, and no runtime CDN dependency. Nothing
 here phones home.
 
-Fetched: 2026-08-03
-Fetched by: agent A4 (api layer)
+Fetched: 2026-08-03  (marked, DOMPurify, highlight.js)  by agent A4 (api layer)
+Fetched: 2026-08-08  (KaTeX + fonts)                    by agent F5 (rich content, v3 D8)
 
 -----------------------------------------------------------------------------------
 File              Library        Version   Size      Licence          Source URL
@@ -14,7 +14,57 @@ File              Library        Version   Size      Licence          Source URL
 marked.min.js     marked         12.0.2    35,479 B  MIT              https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js
 purify.min.js     DOMPurify       3.1.6    21,496 B  Apache-2.0/MPL   https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js
 highlight.min.js  highlight.js   11.9.0   121,727 B  BSD-3-Clause     https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js
+katex.min.js      KaTeX          0.18.1   271,715 B  MIT              https://cdn.jsdelivr.net/npm/katex@0.18.1/dist/katex.min.js
+katex.min.css     KaTeX          0.18.1    22,593 B  MIT              https://cdn.jsdelivr.net/npm/katex@0.18.1/dist/katex.min.css  (MODIFIED — see below)
+fonts/KaTeX_*.woff2  KaTeX       0.18.1   259,792 B  SIL OFL 1.1      https://cdn.jsdelivr.net/npm/katex@0.18.1/dist/fonts/  (20 files)
 -----------------------------------------------------------------------------------
+
+SHA-256, as vendored
+--------------------
+katex.min.js   68b9115510b8cedb9909a10de7799c94c0707481296f755c0a8888cb8fcde216
+katex.min.css  298436a5b0801958d2db79c3cb173c24670ab8e882e83e27b8cd2a555b327a15
+  upstream katex.min.css, before the edit below:
+               0fb711c9c74cb1718661933948b653fbc09a627da5dde8926b4d10585370993e
+
+KaTeX — what was fetched, and the one edit made to it
+-----------------------------------------------------
+Exact commands (bash; re-runnable, the version is pinned in one place):
+
+  V=0.18.1
+  curl -sSf -o katex.min.js  https://cdn.jsdelivr.net/npm/katex@$V/dist/katex.min.js
+  curl -sSf -o katex.min.css https://cdn.jsdelivr.net/npm/katex@$V/dist/katex.min.css
+  mkdir -p fonts
+  for f in AMS-Regular Caligraphic-Bold Caligraphic-Regular Fraktur-Bold Fraktur-Regular \
+           Main-Bold Main-BoldItalic Main-Italic Main-Regular Math-BoldItalic Math-Italic \
+           SansSerif-Bold SansSerif-Italic SansSerif-Regular Script-Regular \
+           Size1-Regular Size2-Regular Size3-Regular Size4-Regular Typewriter-Regular; do
+    curl -sSf -o "fonts/KaTeX_$f.woff2" \
+      "https://cdn.jsdelivr.net/npm/katex@$V/dist/fonts/KaTeX_$f.woff2"
+  done
+
+THE ONE EDIT: upstream katex.min.css lists three sources per @font-face —
+.woff2, .woff and .ttf — which is 60 font files, ~2.3 MB, for a repo that only
+ever needs the first. Every `,url(fonts/KaTeX_*.woff) format("woff")` and
+`,url(fonts/KaTeX_*.ttf) format("truetype")` was deleted, leaving the .woff2
+source alone. Nothing else in the file was touched (24,727 B -> 22,593 B).
+woff2 is supported everywhere this site is supported. If you ever restore the
+other two formats you must also fetch the 40 extra font files, or every formula
+silently falls back to a system serif.
+
+The layout `assets/vendor/katex.min.css` + `assets/vendor/fonts/` is NOT
+negotiable: KaTeX's CSS resolves `url(fonts/…)` relative to the stylesheet.
+
+WATCH THE Size1..Size4 FONTS. They are easy to miss when listing the font names
+by hand because they are the only ones with a digit in them, and they are what
+draws \sum, \int, \sqrt and any \left( \right) that has to stretch. Miss them
+and math renders, looks fine at a glance, and every big operator is wrong. The
+count to check against is 20 .woff2 files and 20 `url(` references in the CSS.
+
+markdown.js does NOT put KaTeX in the marked pipeline, and must never be
+"fixed" to. See the long comment at the top of markdown.js: DOMPurify FORBIDs
+`math` and `svg` and STRIPs `style`, and katex output is all inline `style`, so
+a marked extension is silently mangled with no error at all. Math is typeset on
+the live DOM after sanitisation, inside Clinic.md.enhance().
 
 highlight.js build
 ------------------
@@ -41,6 +91,15 @@ then update the version + size above. Check afterwards that:
   * DOMPurify   — still exposes a global `DOMPurify` with `.sanitize()` and `.addHook()`
   * highlight.js— still exposes a global `hljs` with `.highlightElement()`, and still
                   includes python/bash/json (open the file and search for `grmr_python`)
+  * KaTeX       — still exposes a global `katex` with `.renderToString(tex, opts)`, and
+                  `output:'html'` still suppresses the MathML half. Check with:
+                    node -e "var k=require('./katex.min.js');
+                             var h=k.renderToString('\\frac12',{output:'html',throwOnError:false});
+                             console.log(/<math/.test(h), /style=/.test(h))"
+                  It must print `false true`. If <math> ever appears in the html output,
+                  DOMPurify is not the problem — nothing sanitises it — but the aria-label
+                  fallback in markdown.js's mathNode() becomes the only accessible name,
+                  which it already is. Also re-check the font list (20 .woff2).
 assets/js/markdown.js degrades to plain escaped <pre> text if any of the three globals
 is missing, so a bad upgrade cannot white-screen the site — it just loses formatting.
 

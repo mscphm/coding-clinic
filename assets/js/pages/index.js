@@ -33,6 +33,17 @@
     return s;
   }
   function icon(name) { try { return toNode(UI().icon(name)); } catch (e) { return el('span'); } }
+  /* §9 gives .badge-locked/.badge-duplicate/.badge-instructor-replied their own
+     12px svg rule; the generic .badge has none, so the one badge that has to
+     borrow it (Endorsed — see the note in threadRow) shrinks its icon here
+     rather than in a page-local <style> block. */
+  function icon12(name) {
+    var n = icon(name);
+    var svg = (n && n.tagName && String(n.tagName).toLowerCase() === 'svg')
+      ? n : (n && n.querySelector ? n.querySelector('svg') : null);
+    if (svg) { svg.setAttribute('width', '12'); svg.setAttribute('height', '12'); }
+    return n;
+  }
   function pill(text) { try { return toNode(UI().pill(text)); } catch (e) { return el('span', 'pill', text); } }
   function avatar(a) {
     try { return toNode(UI().avatar(a)); }
@@ -46,7 +57,7 @@
 
   /* ------------------------------------------------------------ page state */
   var data = { threads: [], users: [], contrib: [], contribMonth: null };
-  var cfg = { categories: [], labels: [], notice_text: '' };
+  var cfg = { categories: [], labels: [], languages: [], notice_text: '' };
   var topContrib = {};                /* user_id -> true, all-time top 3      */
   var loaded = false;
 
@@ -56,11 +67,55 @@
     label: '',
     answered: 'all',                  /* all | answered | unanswered          */
     sort: 'latest',                   /* latest | top | unanswered            */
-    lbTab: 'all'                      /* all | month                          */
+    lbTab: 'all',                     /* all | month                          */
+    language: ''                      /* '' = All boards; else one of cfg.languages */
   };
+
+  /* Language board choice (SPEC §4 v2 "language boards") is a primary nav
+     dimension, not a filter: it is remembered client-side and always echoed
+     into the URL so a board is linkable, independent of q/category/label/
+     answered/sort which only ever come from the URL itself. */
+  var LANG_KEY = 'clinic_language';
+  function saveLangPref(v) {
+    try { window.localStorage.setItem(LANG_KEY, v || ''); } catch (e) { /* ignore */ }
+  }
+  /* Has this browser ever picked a board? Set by readUrl(); see the note there
+     for why an absent key and an empty string mean different things. */
+  var boardChosen = false;
 
   /* -------------------------------------------------------------- helpers */
   function isAnswered(t) { return t.status === 'answered' || t.accepted === true; }
+
+  /* --- v3 (contract §5.2). All four new ThreadCard keys may be ABSENT: the
+     app flow has to be re-imported before any of them arrives, and the site
+     ships before that happens (wave 0). Every read below therefore goes
+     through ui.truthy(), which answers false for undefined — so a card on an
+     un-migrated backend renders exactly as it did in v2, with no gap and
+     nothing in the console. --- */
+  function truthy(v) {
+    try { return !!UI().truthy(v); }
+    catch (e) {
+      /* ui.js missing entirely (it never is) — same five accepted spellings. */
+      if (v === true || v === 1) return true;
+      var s = String(v == null ? '' : v).trim().toLowerCase();
+      return s === 'true' || s === '1';
+    }
+  }
+
+  /* §5.2, binding: a thread leaves the unanswered count and the Unanswered
+     filter IFF duplicate_of is non-empty — NEVER by inspecting status. The
+     duplicate ops deliberately do not rewrite status (§4.4), so a thread
+     marked duplicate can still be `open`, and E3/E4 make this exact test
+     flow-side. Inspecting status here would silently disagree with the
+     escalation emails. */
+  function duplicateOf(t) {
+    return String((t && t.duplicate_of) || '').trim();
+  }
+  function isDuplicate(t) { return duplicateOf(t) !== ''; }
+
+  /* D14. Absent -> false -> no banner, writes behave exactly as before. */
+  function archived() { return truthy(cfg && cfg.archive_mode); }
+
   function nameOf(author) { return (author && author.display_name) || 'Unknown'; }
   function labelsOf(t) {
     return Array.isArray(t.labels) ? t.labels : (t.labels ? String(t.labels).split(',') : []);
@@ -84,6 +139,30 @@
     if (a === 'answered' || a === 'unanswered') state.answered = a;
     var s = p.get('sort');
     if (s === 'top' || s === 'unanswered' || s === 'latest') state.sort = s;
+
+    /* An explicit ?lang= (even empty, i.e. "all boards") always wins over the
+       stored preference; otherwise fall back to localStorage. Either way the
+       resolved value is written straight back to storage so "return to your
+       board" always means the board you are looking at right now, however you
+       got here.
+
+       THE TEST IS `stored !== null`, NOT `stored || ''`, and that distinction is
+       the whole of the first-visit chooser. Picking "All" stores the empty
+       string, so truthiness cannot tell "I chose to see everything" apart from
+       "I have never been asked" — and the old code then wrote '' back on the
+       very first paint, which marked every new student as having already
+       chosen. Absent key means never asked; empty string means asked and
+       answered All. */
+    if (p.has('lang')) {
+      state.language = p.get('lang') || '';
+      boardChosen = true;
+    } else {
+      var stored = null;
+      try { stored = window.localStorage.getItem(LANG_KEY); } catch (e) { stored = null; }
+      boardChosen = (stored !== null);
+      state.language = stored || '';
+    }
+    if (boardChosen) saveLangPref(state.language);
   }
   function writeUrl() {
     var p = new URLSearchParams();
@@ -92,6 +171,7 @@
     if (state.label) p.set('label', state.label);
     if (state.answered !== 'all') p.set('answered', state.answered);
     if (state.sort !== 'latest') p.set('sort', state.sort);
+    if (state.language) p.set('lang', state.language);
     var qs = p.toString();
     try { history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '')); }
     catch (e) { /* file:// — harmless */ }
@@ -100,7 +180,7 @@
   function clearFilters() {
     state.q = ''; state.category = ''; state.label = ''; state.answered = 'all';
     writeUrl();
-    renderToolbar(); renderCategories(); renderLabels(); renderList();
+    renderToolbar(); renderCategories(); renderLabels(); renderLanguageSwitcher(); renderList();
   }
 
   /* ============================================================= SIDEBAR === */
@@ -110,13 +190,18 @@
     if (!list) return;
     clear(list);
 
+    /* Category filtering works *within* the chosen language board (SPEC §4),
+       so counts here are scoped to the current board — a student on the R
+       board should never see a category count that includes Python threads. */
+    var scoped = data.threads.filter(function (t) { return matchesLanguage(t, state.language); });
+
     var counts = {};
-    data.threads.forEach(function (t) {
+    scoped.forEach(function (t) {
       var c = t.category || 'General';
       counts[c] = (counts[c] || 0) + 1;
     });
 
-    var rows = [{ key: '', name: 'All discussions', n: data.threads.length }];
+    var rows = [{ key: '', name: 'All discussions', n: scoped.length }];
     var seen = {};
     (cfg.categories || []).forEach(function (c) {
       seen[c] = true;
@@ -136,7 +221,7 @@
       b.appendChild(el('span', 'counter', String(r.n)));
       b.addEventListener('click', function () {
         state.category = (state.category === r.key) ? '' : r.key;
-        writeUrl(); renderCategories(); renderList();
+        writeUrl(); renderCategories(); renderLanguageSwitcher(); renderList();
       });
       li.appendChild(b);
       list.appendChild(li);
@@ -148,9 +233,12 @@
     if (!cloud) return;
     clear(cloud);
 
+    /* Same board-scoping as renderCategories() — see comment there. */
+    var scoped = data.threads.filter(function (t) { return matchesLanguage(t, state.language); });
+
     var seen = {}, all = [];
     (cfg.labels || []).forEach(function (l) { if (l && !seen[l]) { seen[l] = 1; all.push(l); } });
-    data.threads.forEach(function (t) {
+    scoped.forEach(function (t) {
       labelsOf(t).forEach(function (l) {
         l = String(l).trim();
         if (l && !seen[l]) { seen[l] = 1; all.push(l); }
@@ -173,7 +261,7 @@
       p.style.cursor = 'pointer';
       function toggle() {
         state.label = on ? '' : l;
-        writeUrl(); renderLabels(); renderList();
+        writeUrl(); renderLabels(); renderLanguageSwitcher(); renderList();
       }
       p.addEventListener('click', toggle);
       p.addEventListener('keydown', function (ev) {
@@ -299,6 +387,193 @@
     });
   }
 
+  /* ===================================================== LANGUAGE BOARDS === */
+  /* SPEC §4 v2 "language boards": a primary navigation dimension (All / R /
+     Python / Bash/Linux, driven entirely by config.languages — never
+     hardcoded) rendered as its own row above the toolbar, reusing the exact
+     chip-group look of the Answered/Unanswered row below. Filtering is
+     client-side only; threads.list already returns everything. */
+
+  function matchesLanguage(t, lang) {
+    if (!lang) return true;                            /* All boards */
+    /* Threads created before the `language` column existed carry '' and show
+       under All only — never guessed into a specific board. */
+    return (t.language || '') === lang;
+  }
+
+  /* Every filter except language — used both for the visible list (scoped to
+     the current board first) and to count each switcher option "as if" that
+     option were chosen, so the numbers on the switcher can never disagree
+     with what clicking them would show. */
+  function matchesSecondary(t) {
+    if (state.category && (t.category || '') !== state.category) return false;
+    if (state.label && labelsOf(t).indexOf(state.label) === -1) return false;
+    if (state.answered === 'answered' && !isAnswered(t)) return false;
+    /* A duplicate is still listed and still searchable — it just stops being
+       counted as an open question, because someone has already decided the
+       answer lives on another thread. See the §5.2 note on duplicateOf(). */
+    if (state.answered === 'unanswered' && (isAnswered(t) || isDuplicate(t))) return false;
+    if (state.q) {
+      /* `excerpt` is an optional plain-text body summary (mock-data.js provides
+         it); when present it lets the search cover bodies as well, per SPEC §8. */
+      var hay = [t.title || '', t.category || '', labelsOf(t).join(' '),
+                 nameOf(t.author), t.excerpt || ''].join(' ').toLowerCase();
+      var terms = state.q.toLowerCase().split(/\s+/).filter(Boolean);
+      for (var i = 0; i < terms.length; i++) {
+        if (hay.indexOf(terms[i]) === -1) return false;
+      }
+    }
+    return true;
+  }
+
+  function countForOption(key) {
+    return data.threads.filter(function (t) {
+      return matchesLanguage(t, key) && matchesSecondary(t);
+    }).length;
+  }
+
+  /* The switcher lives in its own row, created once and inserted just above
+     #toolbar — index.html (owned by A1) has no markup for it, so it is built
+     entirely here, the same way every other region on this page is. */
+  function ensureLangBar() {
+    var bar = $('lang-switcher');
+    if (bar) return bar;
+    var toolbar = $('toolbar');
+    if (!toolbar || !toolbar.parentNode) return null;
+    bar = el('div', 'toolbar');
+    bar.id = 'lang-switcher';
+    toolbar.parentNode.insertBefore(bar, toolbar);
+    return bar;
+  }
+
+  /* New-discussion button always carries the active board along, so composing
+     from inside e.g. the R board pre-selects R without an extra click. */
+  function updateNewDiscussionLink() {
+    var a = document.querySelector('.page-head a.btn-primary');
+    if (!a) return;
+    a.href = state.language ? ('new.html?lang=' + encodeURIComponent(state.language)) : 'new.html';
+  }
+
+  function selectLanguage(key) {
+    if (state.language === key) return;
+    state.language = key;
+    saveLangPref(key);
+    writeUrl();
+    renderLanguageSwitcher();
+    renderCategories();
+    renderLabels();
+    renderList();
+    window.scrollTo(0, 0);
+  }
+
+  /* The first-visit chooser's click handler, and NOT selectLanguage(): that one
+     starts `if (state.language === key) return;`, so picking "All" — which
+     resolves to the '' this page already holds — would early-return and leave
+     the chooser on screen forever. Recording the CHOICE is the point here; the
+     board may legitimately be unchanged. */
+  function chooseBoard(key) {
+    boardChosen = true;
+    saveLangPref(key);
+    if (state.language !== key) {
+      state.language = key;
+      writeUrl();
+      renderLanguageSwitcher();
+      renderCategories();
+      renderLabels();
+    } else {
+      writeUrl();
+      renderLanguageSwitcher();
+    }
+    renderList();
+    window.scrollTo(0, 0);
+  }
+
+  /* Ask once, and only when there is something to ask: no stored answer, no
+     explicit ?lang= in the address, and a languages list to offer. cfg.languages
+     arrives with meta.bootstrap, so on a genuinely first visit this becomes true
+     when bootstrap lands rather than at first paint — applyBootstrap() re-renders
+     the list, which is what puts the question on screen.
+
+     Deliberately NOT a modal and NOT a route: it renders in place of the thread
+     rows, so it reads as "choose a board" without ever becoming a wall. "All
+     boards" is always one of the answers, because threads written before the
+     `language` column existed carry '' and appear under All ONLY (see
+     matchesLanguage) — an R/Python/Bash-only gate would make every one of them
+     unreachable from this page. */
+  function needsBoardChoice() {
+    return !boardChosen && !state.language &&
+      !!(cfg.languages && cfg.languages.length);
+  }
+
+  function renderBoardChooser(host) {
+    var box = el('div', 'empty-state');
+    box.appendChild(icon('comment-discussion'));
+    box.appendChild(el('h3', null, 'Which board do you want?'));
+    box.appendChild(el('p', null,
+      'Pick the language you are working in. Everything stays one clinic — you ' +
+      'can switch board at any time from the row above, and asking in one board ' +
+      'does not stop you asking in another.'));
+
+    var group = el('div', 'btn-group');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Choose a language board');
+    (cfg.languages || []).forEach(function (l) {
+      if (!l) return;
+      var b = el('button', 'btn btn-primary');
+      b.type = 'button';
+      b.appendChild(el('span', null, l));
+      b.appendChild(el('span', 'counter', String(countForOption(l))));
+      b.addEventListener('click', function () { chooseBoard(l); });
+      group.appendChild(b);
+    });
+    box.appendChild(group);
+
+    /* The escape hatch, and the reason this is not a gate. Quieter than the
+       three, because a board is the better default — but never hidden. */
+    var all = el('button', 'btn btn-invisible btn-sm',
+      'Show me everything (' + countForOption('') + ')');
+    all.type = 'button';
+    all.addEventListener('click', function () { chooseBoard(''); });
+    box.appendChild(all);
+
+    host.appendChild(box);
+  }
+
+  function renderLanguageSwitcher() {
+    var bar = ensureLangBar();
+    if (!bar) return;
+    clear(bar);
+
+    var group = el('div', 'btn-group');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Filter by language board');
+    /* Keep the pill-group look intact (rather than letting individual chips
+       wrap and lose their joined border-radius) and let it scroll sideways
+       instead — config.languages can grow, and this must stay usable at
+       375px either way. */
+    group.style.maxWidth = '100%';
+    group.style.overflowX = 'auto';
+
+    var opts = [['', 'All']];
+    (cfg.languages || []).forEach(function (l) { if (l) opts.push([l, l]); });
+
+    opts.forEach(function (o) {
+      var key = o[0], label = o[1];
+      var on = state.language === key;
+      var b = el('button', 'btn btn-sm' + (on ? ' selected' : ''));
+      b.type = 'button';
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.title = key ? ('Show only the ' + key + ' board') : 'Show every board';
+      b.appendChild(el('span', null, label));
+      b.appendChild(el('span', 'counter', String(countForOption(key))));
+      b.addEventListener('click', function () { selectLanguage(key); });
+      group.appendChild(b);
+    });
+
+    bar.appendChild(group);
+    updateNewDiscussionLink();
+  }
+
   /* ============================================================= TOOLBAR === */
 
   function renderToolbar() {
@@ -319,6 +594,7 @@
       timer = setTimeout(function () {
         state.q = search.value;
         writeUrl();
+        renderLanguageSwitcher();
         renderList();
       }, 120);
     });
@@ -335,7 +611,7 @@
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
       b.addEventListener('click', function () {
         state.answered = o[0];
-        writeUrl(); renderToolbar(); renderList();
+        writeUrl(); renderToolbar(); renderLanguageSwitcher(); renderList();
       });
       group.appendChild(b);
     });
@@ -359,24 +635,9 @@
   }
 
   /* ========================================================= THREAD LIST === */
-
-  function matches(t) {
-    if (state.category && (t.category || '') !== state.category) return false;
-    if (state.label && labelsOf(t).indexOf(state.label) === -1) return false;
-    if (state.answered === 'answered' && !isAnswered(t)) return false;
-    if (state.answered === 'unanswered' && isAnswered(t)) return false;
-    if (state.q) {
-      /* `excerpt` is an optional plain-text body summary (mock-data.js provides
-         it); when present it lets the search cover bodies as well, per SPEC §8. */
-      var hay = [t.title || '', t.category || '', labelsOf(t).join(' '),
-                 nameOf(t.author), t.excerpt || ''].join(' ').toLowerCase();
-      var terms = state.q.toLowerCase().split(/\s+/).filter(Boolean);
-      for (var i = 0; i < terms.length; i++) {
-        if (hay.indexOf(terms[i]) === -1) return false;
-      }
-    }
-    return true;
-  }
+  /* Full match = current board (matchesLanguage) AND every other active
+     filter (matchesSecondary) — both defined in the LANGUAGE BOARDS section
+     above, where they are also reused to compute the switcher's counts. */
 
   function sortRows(rows) {
     var by = state.sort;
@@ -404,7 +665,11 @@
 
   function threadRow(t) {
     var answered = isAnswered(t);
-    var row = el('div', 'thread-row' + (t.pinned ? ' is-pinned' : ''));
+    /* .is-archived is a whole-board state, not a per-thread one: when
+       archive_mode is on nothing here can be replied to, so every row is
+       quietened at once (§9.3). */
+    var row = el('div', 'thread-row' + (t.pinned ? ' is-pinned' : '') +
+      (archived() ? ' is-archived' : ''));
 
     var ico = el('span', 'thread-row-icon' + (answered ? ' answered' : ''));
     ico.title = answered ? 'Answered' : 'Open discussion';
@@ -420,6 +685,73 @@
     var badges = el('span', 'thread-row-badges');
     if (t.pinned) badges.appendChild(el('span', 'badge-pinned', 'Pinned'));
     if (answered) badges.appendChild(el('span', 'badge-answered', 'Answered'));
+
+    /* ---- v3 card markers (D9, D12, D13). Order is deliberate: the two that
+       tell you "this has been dealt with" come first, then the two that tell
+       you "you cannot act on this". All four read through truthy()/
+       duplicateOf(), so an un-migrated backend simply appends nothing. ---- */
+
+    /* D9. instructor_replied is computed flow-side from f_posts_named, which
+       already excludes anonymous posts — an anonymous instructor reply must
+       NOT light this up, or the badge de-anonymises them on their own card.
+       Nothing here can restore that if the flow gets it wrong; this end just
+       has to not invent it (there is no client-side derivation from author
+       ids, precisely because the anonymous author is masked to 'anon'). */
+    if (truthy(t.instructor_replied)) {
+      var ir = el('span', 'badge-instructor-replied');
+      ir.title = 'The instructor has replied on this discussion';
+      ir.appendChild(icon('shield'));
+      ir.appendChild(el('span', null, 'Instructor replied'));
+      badges.appendChild(ir);
+    }
+
+    /* D10 on the card. §9 registers .comment-endorsed / .endorse-strip /
+       .endorse-btn for the thread page but NO card-level endorsed class, so
+       this uses the plain registered .badge rather than inventing a name.
+       That makes it neutral rather than §9.2's outlined navy — the meaning is
+       still unambiguous next to the FILLED green "Answered" badge, but if F1
+       adds a .badge-endorsed this should become a co-class. */
+    if (truthy(t.has_endorsed)) {
+      var en = el('span', 'badge');
+      en.title = 'An answer on this discussion is endorsed by the instructor';
+      en.appendChild(icon12('star'));
+      en.appendChild(el('span', null, 'Endorsed'));
+      badges.appendChild(en);
+    }
+
+    /* D13. */
+    if (truthy(t.locked)) {
+      var lk = el('span', 'badge-locked');
+      lk.title = 'Locked — no new replies';
+      lk.appendChild(icon('lock'));
+      lk.appendChild(el('span', null, 'Locked'));
+      badges.appendChild(lk);
+    }
+
+    /* D12. The badge itself is the link to the earlier question: §5.3 does not
+       return duplicate_of_title (resolving it would cost a second unfiltered
+       GetItems, ~15 s), so the target page supplies the title and this just
+       gets you there in one click. A second link inside the row is fine —
+       .thread-row is a div, not an anchor. */
+    var dup = duplicateOf(t);
+    if (dup) {
+      var du = el('a', 'badge-duplicate');
+      du.href = 'thread.html?id=' + encodeURIComponent(dup);
+      /* D12 asks for a "Duplicate of …" LINK. The visible word used to be just
+         "Duplicate" with the destination hidden in the title tooltip — which a
+         touch user never sees and a screen-reader user is not read by default.
+         The destination is now in the visible text and in an aria-label; title
+         stays for the mouse. The "…" of D12 would be the earlier thread's
+         TITLE, and §5.3 deliberately does not put duplicate_of_title on the
+         wire (resolving it costs a second unfiltered GetItems, ~15 s), so
+         "earlier question" is as specific as this card can honestly be. */
+      du.title = 'Marked as a duplicate — opens the earlier question';
+      du.setAttribute('aria-label', 'Duplicate of an earlier question — open it');
+      du.appendChild(icon('copy'));
+      du.appendChild(el('span', null, 'Duplicate of earlier question'));
+      badges.appendChild(du);
+    }
+
     if (badges.firstChild) main.appendChild(badges);
 
     var meta = el('div', 'thread-row-meta');
@@ -429,7 +761,7 @@
       cp.title = 'Show only ' + t.category;
       cp.addEventListener('click', function () {
         state.category = t.category;
-        writeUrl(); renderCategories(); renderList();
+        writeUrl(); renderCategories(); renderLanguageSwitcher(); renderList();
         window.scrollTo(0, 0);
       });
       meta.appendChild(cp);
@@ -444,7 +776,7 @@
       p.style.cursor = 'pointer';
       function go() {
         state.label = l;
-        writeUrl(); renderLabels(); renderList();
+        writeUrl(); renderLabels(); renderLanguageSwitcher(); renderList();
         window.scrollTo(0, 0);
       }
       p.addEventListener('click', go);
@@ -474,6 +806,53 @@
     row.appendChild(stats);
 
     return row;
+  }
+
+  /* D14 — the site-wide read-only strip, above #toolbar (§9.3). Created and
+     removed rather than hidden, so that flipping archive_mode back to FALSE in
+     Admin restores the page on the next bootstrap refresh with no redeploy and
+     no leftover empty box. Deliberately --attention tinted, never --danger:
+     an archived board is a normal end-of-semester state, not a fault. */
+  function renderArchiveBanner() {
+    var toolbar = $('toolbar');
+    if (!toolbar || !toolbar.parentNode) return;
+
+    var box = $('archive-banner');
+    if (!archived()) {
+      if (box && box.parentNode) box.parentNode.removeChild(box);
+      return;
+    }
+    if (!box) {
+      box = el('div', 'archive-banner');
+      box.id = 'archive-banner';
+      box.setAttribute('role', 'status');
+      /* Above the language switcher too, when that row already exists. */
+      var anchor = $('lang-switcher') || toolbar;
+      anchor.parentNode.insertBefore(box, anchor);
+    }
+    clear(box);
+    box.appendChild(icon('lock'));
+    var text = el('div');
+    text.appendChild(el('strong', null, 'This board is archived'));
+    text.appendChild(document.createTextNode(
+      'Everything stays readable, searchable and exportable. Starting discussions, ' +
+      'replying, voting and accepting answers are switched off.'));
+    box.appendChild(text);
+  }
+
+  /* §8.5 pins search.html's parameter names. index.html carries the language
+     board as the legacy `lang`; search.html accepts both but canonicalises on
+     `language`, so this link emits `language` and never `lang`. */
+  function searchUrl() {
+    var p = new URLSearchParams();
+    if (state.q) p.set('q', state.q);
+    if (state.category) p.set('category', state.category);
+    if (state.label) p.set('label', state.label);
+    if (state.language) p.set('language', state.language);
+    if (state.answered !== 'all') p.set('answered', state.answered);
+    if (state.sort !== 'latest') p.set('sort', state.sort);
+    var qs = p.toString();
+    return 'search.html' + (qs ? '?' + qs : '');
   }
 
   function emptyState(title, msg, actionText, onAction) {
@@ -512,16 +891,43 @@
       return;
     }
 
-    var rows = sortRows(data.threads.filter(matches));
+    /* After the empty-board case, so a brand-new clinic with nothing in it says
+       "no discussions yet" rather than asking which flavour of nothing you would
+       like. See needsBoardChoice(). */
+    if (needsBoardChoice()) {
+      renderBoardChooser(list);
+      return;
+    }
 
-    /* header strip: count + clear-filters */
+    /* Scope to the current board first, then apply every other filter within
+       it — mirrors the switcher's own counts (countForOption) so the two can
+       never disagree. */
+    var boardThreads = data.threads.filter(function (t) { return matchesLanguage(t, state.language); });
+    var rows = sortRows(boardThreads.filter(matchesSecondary));
+
+    /* header strip: count + clear-filters. The denominator is the current
+       board's total, not the whole site's, so "3 of 8" always means "3 of
+       the 8 threads in this board" rather than mixing in other boards. */
     var head = el('div', 'thread-list-header');
     head.appendChild(el('span', null,
       rows.length + (rows.length === 1 ? ' discussion' : ' discussions') +
-      (filtering() ? ' of ' + data.threads.length : '')));
+      (filtering() ? ' of ' + boardThreads.length : '')));
     if (filtering()) {
       var spacer = el('span', 'grow');
       head.appendChild(spacer);
+      /* D2 hand-off. This list does a raw substring AND over a concatenated
+         haystack; search.html tokenises, stopwords and prefix-matches, so it
+         is a documented SUBSET — it can legitimately return fewer than N.
+         The count is this page's own, because this page's filters are what
+         the link carries; the title says so rather than pretending. */
+      if (rows.length) {
+        var more = el('a', 'btn btn-sm btn-invisible',
+          'See all ' + rows.length + (rows.length === 1 ? ' result' : ' results'));
+        more.href = searchUrl();
+        more.title = 'Open these filters on the full search page. Search matches ' +
+          'whole words, so it can return fewer than ' + rows.length + '.';
+        head.appendChild(more);
+      }
       var cl = el('button', 'btn btn-sm btn-invisible', 'Clear filters');
       cl.type = 'button';
       cl.addEventListener('click', clearFilters);
@@ -530,12 +936,31 @@
     list.appendChild(head);
 
     if (!rows.length) {
-      list.appendChild(emptyState(
-        'No matching discussions',
-        'Nothing matches the current search and filters.',
-        'Clear filters',
-        clearFilters
-      ));
+      if (state.language && !boardThreads.length) {
+        /* The board itself has nothing yet, regardless of q/category/label/
+           answered — inviting a clear-filters click would be useless here. */
+        list.appendChild(emptyState(
+          'No ' + state.language + ' questions yet — ask the first one',
+          'Be the first to ask in the ' + state.language + ' board. Say what you tried, ' +
+          'paste the exact error, and keep the code minimal.',
+          'Ask a ' + state.language + ' question',
+          function () { location.href = 'new.html?lang=' + encodeURIComponent(state.language); }
+        ));
+      } else if (state.language) {
+        list.appendChild(emptyState(
+          'No matching discussions in ' + state.language,
+          'Nothing in the ' + state.language + ' board matches the current search and filters.',
+          'Clear filters',
+          clearFilters
+        ));
+      } else {
+        list.appendChild(emptyState(
+          'No matching discussions',
+          'Nothing matches the current search and filters.',
+          'Clear filters',
+          clearFilters
+        ));
+      }
       return;
     }
 
@@ -544,15 +969,90 @@
 
   /* ================================================================ BOOT === */
 
+  /* ------------------------------------------------- the twice-delivered board
+     api.threadsList() (v3.1) paints the cached board immediately and refreshes
+     behind it, so this page now receives threads.list TWICE on a warm cache:
+     once from localStorage, once from the flow ~10-20 s later.
+
+     Redrawing on the second delivery unconditionally would rebuild the list
+     under the reader's cursor on every single visit, and the common case is that
+     NOTHING has changed since they last looked. So the payload is fingerprinted
+     and an identical one is dropped without touching the DOM.
+
+     The fingerprint is deliberately order-INSENSITIVE (the parts are sorted):
+     row order is decided here by sortRows(), not by the flow, so two payloads
+     that differ only in the order they arrived in are the same board. Every
+     field the cards actually render is in it, including the four v3 keys, so a
+     lock, an endorsement or an accepted answer counts as a change even when no
+     thread was added. */
+  /* Field / row delimiters. Written as escapes, not as literal control
+     characters: a raw 0x01 in a source file is invisible to whoever reads
+     it next and one stray editor save or copy-paste silently turns the
+     fingerprint into a plain concatenation, where 't_1'+'2' and 't_12'+''
+     collide and the board then never notices a change at all. */
+  var FS = '\u0001';
+  var RS = '\u0002';
+
+  function signatureOf(list) {
+    var rows = (list && list.threads) || [];
+    var parts = [];
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i] || {};
+      parts.push([t.thread_id, t.title, t.language, t.category, t.status,
+                  t.accepted, t.pinned, t.locked, t.duplicate_of,
+                  t.instructor_replied, t.has_endorsed,
+                  t.reply_count, t.upvotes, t.deleted,
+                  labelsOf(t).join(',')].join(FS));
+    }
+    parts.sort();
+    /* The leaderboard can move without any thread changing. */
+    var contrib = (list && list.contrib) || [];
+    for (var j = 0; j < contrib.length; j++) {
+      var c = contrib[j] || {};
+      parts.push('c' + FS + [c.user_id, c.replies, c.accepted,
+                              c.upvotes_received].join(FS));
+    }
+    return parts.join(RS);
+  }
+
+  var lastSig = null;
+
+  function applyThreadsPayload(list) {
+    list = list || {};
+    data.threads = (list.threads || []).filter(function (t) { return t && !t.deleted; });
+    data.users = list.users || [];
+    data.contrib = list.contrib || [];
+    data.contribMonth = list.contrib_month || null;
+
+    topContrib = {};
+    ranked(data.contrib).slice(0, 3).forEach(function (c) { topContrib[c.user_id] = true; });
+  }
+
   function applyBootstrap(b) {
     if (!b || !b.config) return;
+    var wasArchived = archived();
+    var wasAsking = needsBoardChoice();
     cfg = b.config;
     renderCategories();
     renderLabels();
     renderNotice();
+    renderLanguageSwitcher();
+    renderArchiveBanner();
+    /* D14: "within one bootstrap refresh". archive_mode flipping is the one
+       config change that alters every row (.is-archived), so the list is
+       redrawn — but only when it actually changed, so a routine background
+       refresh does not rebuild the list under someone's cursor.
+
+       The board question is the second such config-driven whole-list change: it
+       can only be asked once cfg.languages exists, and a bootstrap cached before
+       that row was added supplies it here rather than at first paint. Same
+       discipline — redraw only on an actual change. */
+    if (wasArchived !== archived() || wasAsking !== needsBoardChoice()) renderList();
   }
 
   function renderAll() {
+    renderLanguageSwitcher();
+    renderArchiveBanner();
     renderCategories();
     renderLabels();
     renderNotice();
@@ -572,6 +1072,10 @@
     try { if (UI().renderHeader) UI().renderHeader('discussions'); } catch (e) {}
 
     readUrl();
+    /* Echo the resolved board straight back into the address bar — readUrl()
+       may have just pulled it from localStorage rather than the URL itself,
+       and a restored board should be just as linkable as a chosen one. */
+    writeUrl();
     renderToolbar();
 
     /* api.bootstrap() answers instantly from the localStorage cache and
@@ -584,18 +1088,43 @@
       ? api.bootstrap()
       : api.call('meta.bootstrap', {});
 
-    Promise.all([bootP, api.call('threads.list', {})]).then(function (res) {
+    /* api.threadsList() answers instantly from the localStorage cache when there
+       is one and refreshes in the background, exactly as api.bootstrap() does.
+       The fallback keeps this page working against an api.js that predates the
+       cache. */
+    var threadsP = (typeof api.threadsList === 'function')
+      ? api.threadsList()
+      : api.call('threads.list', {});
+
+    /* The background refresh landing. Registered BEFORE the first paint on
+       purpose: on a cache MISS, storeThreads fires this event while `loaded` is
+       still false, the guard below drops it, and the Promise.all path a tick
+       later is what sets the baseline fingerprint. On a cache HIT it is the
+       only thing that ever swaps fresh data in. */
+    window.addEventListener('clinic:threads', function (ev) {
+      if (!loaded || !ev || !ev.detail) return;
+      var sig = signatureOf(ev.detail);
+      if (sig === lastSig) return;      /* nothing has changed — leave the DOM alone */
+      lastSig = sig;
+      applyThreadsPayload(ev.detail);
+      renderLanguageSwitcher();
+      renderCategories();
+      renderLabels();
+      renderLeaderboard();
+      renderList();
+      /* Say so. The list has just moved under someone who did not ask it to,
+         and an unexplained shift reads as a glitch. Only ever on a real change,
+         so this is not per-visit noise. */
+      toast('Discussions updated.');
+    });
+
+    Promise.all([bootP, threadsP]).then(function (res) {
       var b = res[0] || {};
       var list = res[1] || {};
 
       cfg = b.config || cfg;
-      data.threads = (list.threads || []).filter(function (t) { return t && !t.deleted; });
-      data.users = list.users || [];
-      data.contrib = list.contrib || [];
-      data.contribMonth = list.contrib_month || null;
-
-      topContrib = {};
-      ranked(data.contrib).slice(0, 3).forEach(function (c) { topContrib[c.user_id] = true; });
+      applyThreadsPayload(list);
+      lastSig = signatureOf(list);
 
       loaded = true;
       renderAll();

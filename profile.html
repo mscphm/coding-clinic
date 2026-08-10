@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin · NUS Coding Clinic</title>
+  <title>Your profile · NUS Coding Clinic</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%231f6feb' d='M1.25 3A1.75 1.75 0 0 1 3 1.25h10A1.75 1.75 0 0 1 14.75 3v7A1.75 1.75 0 0 1 13 11.75H7.5L4 14.75V11.75H3A1.75 1.75 0 0 1 1.25 10Z'/%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M6.25 5.5 4.25 7.5l2 2M9.75 5.5l2 2-2 2'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="assets/css/main.css">
   <script>
@@ -16,17 +16,18 @@
     })();
   </script>
   <style>
-    /* Two page-mechanics rules main.css has no class for. Everything else on
-       this page uses the shared design system. */
-    .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
-    .menu-item.is-danger { color: var(--danger); }
+    /* profile.html only. No class in main.css caps a form's width, and a
+       settings-style form stretched across the full 1216px container reads
+       poorly, so this one rule lives here rather than in the shared
+       stylesheet. See the build report for why. */
+    #profile-main { max-width: 640px; }
   </style>
 </head>
 <body>
   <div id="app-header"></div>
   <div class="container layout layout-single">
-    <main class="main" id="admin-main">
-      <div class="spinner spinner-block" aria-label="Loading"></div>
+    <main class="main" id="profile-main">
+      <div class="spinner" aria-label="Loading"></div>
     </main>
   </div>
   <div id="toasts"></div>
@@ -40,7 +41,7 @@
   <script defer src="assets/js/ui.js"></script>
   <script defer src="assets/js/poll.js"></script>
   <script defer src="assets/js/unread.js"></script>
-  <script defer src="assets/js/pages/admin.js"></script>
+  <script defer src="assets/js/pages/profile.js"></script>
   <script defer src="assets/js/chat-fab.js"></script>
   <script defer src="assets/js/chat-panel.js"></script>
 </body>

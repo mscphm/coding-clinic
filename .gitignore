@@ -1,0 +1,19 @@
+# Never commit credentials
+*_GITHUB_UPLOAD*
+*.token
+*.pat
+.env
+.env.*
+
+# Local tooling / editor state
+.claude/
+.vscode/
+.idea/
+
+# OS cruft
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# OneDrive conflict copies
+*conflicted copy*

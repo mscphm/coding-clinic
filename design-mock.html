@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<!--
+===============================================================================
+DESIGN MOCK — NUS Coding Clinic re-skinned in the bridging-course visual language
+Not wired to the API. Static content only, lifted from mock-data.js so the
+proportions are honest. Two views (Discussions / Clinic booking) toggle from
+the nav bar. Self-contained: does not touch assets/css/main.css.
+
+Design tokens copied from system_py/1_6a_Functions.html:
+  navy #003D7C · orange #FF6B35 (→#ff8555) · red #D32F2F
+  text #2c3e50 · muted #5a6c7d · subtle #94a3b8
+  Inter 300–800 · cards radius 16–20px · shadow 0 8px 32px rgba(0,61,124,.10)
+===============================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<meta name="theme-color" content="#003D7C">
+<title>Discussions | NUS Coding Clinic — design mock</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background-color: #ffffff;
+  color: #2c3e50;
+  line-height: 1.7;
+  min-height: 100vh;
+  position: relative;
+}
+/* Floating tint field — straight from the bridging course pages */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: -1;
+  background:
+    radial-gradient(circle at 20% 50%, rgba(0,61,124,0.04) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(255,107,53,0.04) 0%, transparent 50%),
+    radial-gradient(circle at 40% 20%, rgba(0,61,124,0.03) 0%, transparent 50%);
+  animation: bgFloat 20s ease-in-out infinite;
+}
+@keyframes bgFloat {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(-20px, -20px) scale(1.05); }
+  66%      { transform: translate(20px, -10px) scale(0.95); }
+}
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 2000;
+  background: #003D7C; color: #fff; padding: 10px 18px; border-radius: 0 0 8px 0;
+  font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.skip-link:focus { left: 0; }
+
+/* ── Top banner ──────────────────────────────────────────────────── */
+.top-banner {
+  background: rgba(255,255,255,0.97);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  padding: 18px 60px;
+  border-bottom: 1px solid rgba(0,61,124,0.1);
+  position: sticky; top: 0; z-index: 1001;
+  box-shadow: 0 2px 20px rgba(0,61,124,0.06);
+}
+.top-banner-content {
+  display: flex; align-items: center; gap: 18px;
+  max-width: 1600px; margin: 0 auto;
+}
+.biochem-logo { height: 48px; transition: transform 0.3s ease; display: block; }
+.biochem-logo:hover { transform: scale(1.05); }
+.logo-fallback {
+  font-size: 15px; font-weight: 800; color: #003D7C; letter-spacing: 0.4px;
+  line-height: 1.2; text-decoration: none; display: none;
+}
+.logo-fallback small { display: block; font-size: 10px; font-weight: 600; color: #5a6c7d; letter-spacing: 1px; text-transform: uppercase; }
+.banner-divider { width: 1px; height: 30px; background: rgba(0,61,124,0.12); }
+.banner-context { font-size: 12px; color: #5a6c7d; font-weight: 500; letter-spacing: 0.2px; }
+.banner-context strong { display: block; color: #003D7C; font-size: 14px; font-weight: 700; letter-spacing: 0; }
+
+.auth-chip {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 12px; color: #003D7C;
+  background: #f1f6fb; border: 1px solid #d6e4f0; border-radius: 999px;
+  padding: 6px 8px 6px 14px;
+}
+.auth-chip-name { font-weight: 600; }
+.auth-chip-sep { color: #9bb3c9; }
+.auth-chip-logout {
+  background: none; border: 0; padding: 0 8px 0 0;
+  color: #c0392b; font-weight: 600; font-size: 12px; cursor: pointer; font-family: inherit;
+}
+.auth-chip-logout:hover { text-decoration: underline; }
+.banner-btn {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.3px;
+  color: #5a6c7d; background: #ffffff;
+  border: 1px solid #e2e8f0; border-radius: 6px;
+  padding: 7px 13px; cursor: pointer; font-family: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.2s ease;
+}
+.banner-btn:hover { color: #FF6B35; border-color: #FF6B35; background: #fff7f3; }
+.banner-btn svg { width: 14px; height: 14px; }
+
+/* ── Nav bar ─────────────────────────────────────────────────────── */
+.nav-bar {
+  background: rgba(255,255,255,0.98);
+  backdrop-filter: blur(10px);
+  position: sticky; top: 84px; z-index: 1000;
+  box-shadow: 0 2px 20px rgba(0,61,124,0.08);
+}
+.nav-bar-content { max-width: 1600px; margin: 0 auto; padding: 0 60px; }
+.nav-links { display: flex; list-style: none; gap: 15px; align-items: center; }
+.nav-links > li > a {
+  display: flex; align-items: center; gap: 8px;
+  text-decoration: none; color: #003D7C;
+  font-size: 13px; font-weight: 500; padding: 18px 10px;
+  white-space: nowrap; letter-spacing: 0.2px;
+  border-bottom: 3px solid transparent;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+.nav-links > li > a:hover { color: #FF6B35; }
+.nav-links > li > a.active { color: #003D7C; font-weight: 700; border-bottom-color: #FF6B35; }
+.nav-links svg { width: 15px; height: 15px; }
+.nav-tag {
+  font-size: 9px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+  background: rgba(0,61,124,0.10); color: #003D7C;
+  padding: 2px 7px; border-radius: 10px;
+}
+.nav-count {
+  min-width: 19px; height: 19px; padding: 0 6px; border-radius: 10px;
+  background: rgba(0,61,124,0.08); color: #003D7C;
+  font-size: 10px; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.nav-links > li > a.active .nav-count { background: #FF6B35; color: #fff; }
+
+/* ── Hero ────────────────────────────────────────────────────────── */
+.clinic-hero { max-width: 1600px; margin: 0 auto; padding: 44px 60px 26px; }
+.hero-eyebrow {
+  font-size: 12px; font-weight: 600; letter-spacing: 1.2px;
+  text-transform: uppercase; color: #FF6B35; margin-bottom: 8px;
+}
+.clinic-hero h1 {
+  font-size: 42px; font-weight: 800; color: #003D7C;
+  line-height: 1.15; margin-bottom: 12px;
+}
+.clinic-hero .subtitle { font-size: 19px; color: #5a6c7d; font-weight: 400; max-width: 760px; }
+
+/* ── Three-column grid ───────────────────────────────────────────── */
+.clinic-grid {
+  max-width: 1600px; margin: 0 auto;
+  padding: 20px 48px 80px;
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr) 340px;
+  gap: 24px; align-items: start;
+}
+
+/* ── Cards ───────────────────────────────────────────────────────── */
+.side-card, .rail-card {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,61,124,0.10);
+  border: 1px solid rgba(0,61,124,0.08);
+  padding: 20px 16px;
+  margin-bottom: 20px;
+}
+.side-col { position: sticky; top: 156px; max-height: calc(100vh - 180px); overflow-y: auto; padding-right: 2px; }
+.rail-col { position: sticky; top: 156px; max-height: calc(100vh - 180px); overflow-y: auto; padding-right: 2px; }
+.side-col::-webkit-scrollbar, .rail-col::-webkit-scrollbar { width: 6px; }
+.side-col::-webkit-scrollbar-thumb, .rail-col::-webkit-scrollbar-thumb { background: rgba(0,61,124,0.14); border-radius: 3px; }
+
+.card-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+  text-transform: uppercase; color: #FF6B35;
+  padding: 0 8px 12px; border-bottom: 1px solid rgba(0,61,124,0.08);
+  margin-bottom: 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.card-title .card-title-note { color: #94a3b8; font-weight: 600; letter-spacing: 0.4px; text-transform: none; font-size: 10px; }
+
+.main-panel {
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(0,61,124,0.10);
+  padding: 30px 34px 34px;
+  min-width: 0;
+}
+
+/* ── Sidebar list items ──────────────────────────────────────────── */
+.side-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; text-align: left;
+  background: none; border: 0; cursor: pointer;
+  font-family: inherit; text-decoration: none;
+  color: #2c3e50; font-size: 14px; font-weight: 500;
+  padding: 9px 12px; margin: 2px 0;
+  border-radius: 8px; border-left: 3px solid transparent;
+  transition: all 0.2s ease; line-height: 1.35;
+}
+.side-item:hover {
+  background: rgba(0,61,124,0.08); color: #003D7C;
+  transform: translateX(3px); box-shadow: 0 2px 8px rgba(0,61,124,0.08);
+}
+.side-item.active {
+  background: rgba(0,61,124,0.08); color: #003D7C;
+  border-left-color: #FF6B35; font-weight: 600;
+}
+.side-item .count {
+  margin-left: auto; font-size: 11px; font-weight: 700; color: #94a3b8;
+  background: #f8fafc; border: 1px solid rgba(0,61,124,0.08);
+  border-radius: 20px; padding: 1px 8px; min-width: 26px; text-align: center;
+}
+.side-item.active .count { color: #FF6B35; border-color: rgba(255,107,53,0.30); background: #fff7f3; }
+
+.label-cloud { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px 2px; }
+.label-chip {
+  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 11px; font-weight: 500;
+  background: #f8fafc; border: 1px solid rgba(0,61,124,0.12);
+  color: #003D7C; border-radius: 20px; padding: 4px 11px;
+  cursor: pointer; transition: all 0.15s ease; text-decoration: none;
+}
+.label-chip:hover { border-color: #FF6B35; color: #FF6B35; background: #fff7f3; transform: translateY(-1px); }
+.label-chip .n { color: #94a3b8; margin-left: 4px; }
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+.btn {
+  font-family: inherit; font-size: 14px; font-weight: 600; letter-spacing: 0.3px;
+  padding: 10px 20px; border-radius: 8px; border: 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.btn svg { width: 15px; height: 15px; }
+.btn-primary {
+  background: linear-gradient(135deg, #FF6B35 0%, #ff8555 100%);
+  color: #fff; box-shadow: 0 4px 14px rgba(255,107,53,0.25);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(255,107,53,0.35); }
+.btn-secondary { background: #fff; color: #003D7C; border: 1.5px solid rgba(0,61,124,0.25); }
+.btn-secondary:hover { background: rgba(0,61,124,0.06); border-color: rgba(0,61,124,0.40); transform: translateY(-1px); }
+.btn-sm { font-size: 12px; padding: 7px 14px; border-radius: 7px; }
+.btn-block { width: 100%; justify-content: center; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* ── Panel head + toolbar ────────────────────────────────────────── */
+.panel-head {
+  display: flex; align-items: center; gap: 16px;
+  padding-bottom: 16px; margin-bottom: 18px;
+  border-bottom: 2px solid rgba(0,61,124,0.12);
+}
+.panel-head h2 { font-size: 24px; font-weight: 700; color: #003D7C; line-height: 1.2; }
+.panel-head .panel-sub { font-size: 13px; color: #5a6c7d; margin-top: 2px; }
+.panel-head .spacer { flex: 1; }
+
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+.search-wrap { position: relative; flex: 1; min-width: 220px; }
+.search-wrap svg {
+  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+  width: 15px; height: 15px; color: #94a3b8; pointer-events: none;
+}
+.search-input {
+  width: 100%; font-family: inherit; font-size: 14px;
+  border: 1.5px solid rgba(0,61,124,0.16); border-radius: 9px;
+  padding: 10px 14px 10px 38px; background: #fff; color: #2c3e50;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.search-input::placeholder { color: #94a3b8; }
+.search-input:focus { outline: 0; border-color: #FF6B35; box-shadow: 0 0 0 3px rgba(255,107,53,0.12); }
+
+.seg { display: flex; gap: 4px; padding: 4px; background: #f1f5f9; border-radius: 9px; }
+.seg-btn {
+  border: 0; border-radius: 7px; background: transparent; color: #5a6c7d;
+  font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.2px;
+  padding: 7px 13px; cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.seg-btn:hover { color: #003D7C; }
+.seg-btn.active { background: #fff; color: #003D7C; box-shadow: 0 1px 6px rgba(0,61,124,0.12); }
+
+.filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.filter-row .filter-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #94a3b8; }
+.filter-chip {
+  font-size: 12px; font-weight: 600; color: #5a6c7d;
+  background: #fff; border: 1px solid rgba(0,61,124,0.14);
+  border-radius: 20px; padding: 5px 13px; cursor: pointer; font-family: inherit;
+  transition: all 0.15s ease;
+}
+.filter-chip:hover { border-color: rgba(0,61,124,0.32); color: #003D7C; }
+.filter-chip.active {
+  background: rgba(0,61,124,0.08); border-color: rgba(0,61,124,0.30);
+  color: #003D7C; font-weight: 700;
+}
+
+/* ── Thread rows ─────────────────────────────────────────────────── */
+.thread-list { display: flex; flex-direction: column; gap: 10px; }
+.thread-row {
+  display: flex; gap: 14px;
+  background: #fff;
+  border: 1px solid rgba(0,61,124,0.10);
+  border-left: 3px solid transparent;
+  border-radius: 12px; padding: 15px 18px;
+  text-decoration: none; color: inherit;
+  transition: all 0.2s ease;
+}
+.thread-row:hover {
+  border-color: rgba(0,61,124,0.18); border-left-color: #FF6B35;
+  transform: translateX(3px);
+  box-shadow: 0 6px 20px rgba(0,61,124,0.10);
+}
+.thread-row.pinned { background: linear-gradient(135deg, #fff8f3 0%, #fff 60%); border-color: rgba(255,107,53,0.25); }
+.thread-row.pinned:hover { border-color: rgba(255,107,53,0.45); }
+.thread-icon {
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,61,124,0.07); color: #003D7C;
+}
+.thread-icon svg { width: 17px; height: 17px; }
+.thread-icon.answered { background: rgba(46,163,107,0.10); color: #2ea36b; }
+.thread-icon.pin { background: linear-gradient(135deg, #FF6B35 0%, #ff8555 100%); color: #fff; }
+.thread-main { flex: 1; min-width: 0; }
+.thread-title {
+  font-size: 16px; font-weight: 600; color: #003D7C;
+  line-height: 1.4; margin-bottom: 7px;
+}
+.thread-row:hover .thread-title { color: #FF6B35; }
+.thread-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px; color: #5a6c7d; line-height: 1.5;
+}
+.thread-meta .dot { color: #cbd5e1; }
+.thread-meta .who { font-weight: 600; color: #2c3e50; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px;
+  text-transform: uppercase; border-radius: 20px; padding: 3px 10px;
+}
+.pill-cat { background: rgba(0,61,124,0.08); color: #003D7C; }
+.pill-lang {
+  background: #fff; border: 1px solid rgba(0,61,124,0.16); color: #5a6c7d;
+  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: 0.2px; text-transform: none; font-weight: 500;
+}
+.pill-answered { background: linear-gradient(135deg, #2ea36b 0%, #4cc285 100%); color: #fff; }
+.pill-open { background: linear-gradient(135deg, #5b8def 0%, #7da3f5 100%); color: #fff; }
+.pill-pinned { background: linear-gradient(135deg, #FF6B35 0%, #ff8555 100%); color: #fff; }
+.pill-anon { background: #f1f5f9; color: #64748b; }
+
+.thread-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.stat-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 700; color: #5a6c7d;
+  background: #f8fafc; border: 1px solid rgba(0,61,124,0.08);
+  border-radius: 20px; padding: 3px 11px;
+}
+.stat-chip svg { width: 12px; height: 12px; }
+.stat-chip.hot { color: #FF6B35; border-color: rgba(255,107,53,0.28); background: #fff7f3; }
+
+.avatar {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 800; color: #fff; letter-spacing: 0;
+  background: linear-gradient(135deg, #003D7C 0%, #0052a3 100%);
+  flex-shrink: 0;
+}
+.avatar.orange { background: linear-gradient(135deg, #FF6B35 0%, #ff8555 100%); }
+.avatar.anon { background: #cbd5e1; color: #64748b; }
+.avatar.lg { width: 30px; height: 30px; font-size: 12px; }
+
+/* ── Notice box ──────────────────────────────────────────────────── */
+.notice-box {
+  font-size: 13.5px; color: #333; line-height: 1.65;
+  background: rgba(0,61,124,0.05);
+  border-left: 3px solid #003D7C;
+  padding: 13px 16px; border-radius: 6px; margin: 4px 4px 0;
+}
+.notice-box strong { color: #003D7C; }
+
+/* ── Next clinic card ────────────────────────────────────────────── */
+.clinic-when {
+  text-align: center; padding: 6px 8px 14px;
+  border-bottom: 1px solid rgba(0,61,124,0.08); margin-bottom: 12px;
+}
+.clinic-when .day { font-size: 13px; font-weight: 700; color: #FF6B35; letter-spacing: 1px; text-transform: uppercase; }
+.clinic-when .date { font-size: 26px; font-weight: 800; color: #003D7C; line-height: 1.2; margin: 2px 0; }
+.clinic-when .time { font-size: 13px; color: #5a6c7d; font-family: 'JetBrains Mono', Menlo, Consolas, monospace; }
+.cutoff-note {
+  font-size: 11.5px; color: #5a6c7d; line-height: 1.5;
+  background: #fff7f3; border: 1px solid rgba(255,107,53,0.22);
+  border-radius: 8px; padding: 9px 12px; margin: 0 4px 12px;
+}
+.cutoff-note strong { color: #FF6B35; }
+.progress-track { height: 5px; background: rgba(0,61,124,0.08); border-radius: 3px; overflow: hidden; margin: 0 4px 8px; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #003D7C 0%, #FF6B35 100%); transition: width 0.4s ease; }
+.progress-cap { font-size: 11px; color: #94a3b8; text-align: center; margin-bottom: 12px; }
+
+/* ── Leaderboard ─────────────────────────────────────────────────── */
+.lb-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 8px;
+  border-left: 3px solid transparent;
+  transition: all 0.2s ease;
+}
+.lb-row:hover { background: rgba(0,61,124,0.06); transform: translateX(3px); }
+.lb-row.me { background: rgba(255,107,53,0.06); border-left-color: #FF6B35; }
+.lb-rank { font-size: 12px; font-weight: 800; color: #94a3b8; min-width: 18px; }
+.lb-row.top .lb-rank { color: #FF6B35; }
+.lb-name { font-size: 13px; font-weight: 600; color: #2c3e50; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-score { font-size: 12px; font-weight: 800; color: #003D7C; }
+.lb-note { font-size: 11px; color: #94a3b8; padding: 8px 10px 0; line-height: 1.5; }
+
+/* ── Booking view ────────────────────────────────────────────────── */
+.slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 4px; }
+.slot-card {
+  background: #fff; border: 2px solid rgba(0,61,124,0.14);
+  border-radius: 12px; padding: 14px 12px; text-align: center;
+  cursor: pointer; font-family: inherit;
+  transition: all 0.2s ease;
+}
+.slot-card:hover:not(.taken):not(.mine) {
+  border-color: #FF6B35; transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(255,107,53,0.16);
+}
+.slot-time {
+  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 17px; font-weight: 500; color: #003D7C; letter-spacing: -0.3px;
+}
+.slot-status {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; margin-top: 5px;
+}
+.slot-card.open .slot-status { color: #2ea36b; }
+.slot-card.taken {
+  background: #f8fafc; border-color: rgba(0,61,124,0.08);
+  cursor: not-allowed; opacity: 0.7;
+}
+.slot-card.taken .slot-time { color: #94a3b8; text-decoration: line-through; }
+.slot-card.taken .slot-status { color: #94a3b8; }
+.slot-card.mine {
+  background: linear-gradient(135deg, #fff8f3 0%, #fff 100%);
+  border-color: #FF6B35; box-shadow: 0 6px 20px rgba(255,107,53,0.14);
+}
+.slot-card.mine .slot-status { color: #FF6B35; }
+.slot-card.selected { border-color: #003D7C; background: rgba(0,61,124,0.04); box-shadow: 0 6px 20px rgba(0,61,124,0.12); }
+
+.booking-panel {
+  background: linear-gradient(135deg, #fff8f3 0%, #fff 100%);
+  border: 2px solid rgba(255,107,53,0.25);
+  border-radius: 14px; padding: 22px 26px; margin-top: 26px;
+  box-shadow: 0 6px 20px rgba(255,107,53,0.08);
+}
+.booking-panel .bp-header {
+  display: inline-block;
+  background: linear-gradient(135deg, #FF6B35 0%, #ff8555 100%);
+  color: #fff; padding: 4px 14px; border-radius: 20px;
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; margin-bottom: 12px;
+}
+.field { margin-bottom: 14px; }
+.field-label { display: block; font-size: 13px; font-weight: 600; color: #003D7C; margin-bottom: 6px; }
+.field-hint { font-size: 11.5px; color: #5a6c7d; margin-top: 5px; line-height: 1.5; }
+.select, .textarea {
+  width: 100%; font-family: inherit; font-size: 14px;
+  border: 1.5px solid rgba(0,61,124,0.2); border-radius: 8px;
+  padding: 10px 13px; background: #fff; color: #2c3e50; resize: vertical;
+}
+.select:focus, .textarea:focus { outline: 0; border-color: #FF6B35; box-shadow: 0 0 0 3px rgba(255,107,53,0.12); }
+
+.my-booking-card {
+  background: #fff; border: 2px solid rgba(0,61,124,0.18);
+  border-radius: 14px; padding: 20px 24px; margin-bottom: 24px;
+  box-shadow: 0 4px 14px rgba(0,61,124,0.06);
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+}
+.mb-when {
+  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 20px; font-weight: 500; color: #003D7C;
+}
+.mb-sub { font-size: 13px; color: #5a6c7d; }
+.mb-sub a { color: #FF6B35; font-weight: 600; text-decoration: none; }
+.mb-sub a:hover { text-decoration: underline; }
+
+/* ── Stat cards (booking view header) ────────────────────────────── */
+.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.stat-card {
+  background: #fff; border: 1px solid rgba(0,61,124,0.10);
+  border-radius: 12px; padding: 15px 18px;
+  box-shadow: 0 4px 14px rgba(0,61,124,0.05);
+}
+.stat-card .sc-value { font-size: 27px; font-weight: 800; color: #003D7C; line-height: 1.15; }
+.stat-card .sc-label { font-size: 11px; font-weight: 600; letter-spacing: 0.9px; text-transform: uppercase; color: #94a3b8; margin-top: 2px; }
+.stat-card.accent .sc-value { color: #FF6B35; }
+
+.mock-flag {
+  max-width: 1600px; margin: 0 auto; padding: 14px 60px 0;
+}
+.mock-flag-inner {
+  font-size: 12px; color: #5a6c7d; line-height: 1.6;
+  background: rgba(0,61,124,0.05); border-left: 3px solid #003D7C;
+  border-radius: 6px; padding: 11px 16px;
+}
+.mock-flag-inner strong { color: #003D7C; }
+
+.view { display: none; }
+.view.active { display: block; }
+
+.list-foot {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(0,61,124,0.08);
+  font-size: 13px; color: #94a3b8;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1400px) {
+  .clinic-grid { grid-template-columns: 230px minmax(0, 1fr); }
+  .rail-col { display: none; }
+  .top-banner, .nav-bar-content, .clinic-hero, .mock-flag { padding-left: 40px; padding-right: 40px; }
+  .clinic-grid { padding-left: 40px; padding-right: 40px; }
+}
+@media (max-width: 1024px) {
+  .clinic-grid { grid-template-columns: minmax(0, 1fr); }
+  .side-col { position: static; max-height: none; }
+  .clinic-hero h1 { font-size: 32px; }
+  .clinic-hero { padding: 32px 24px 16px; }
+  .top-banner { padding: 16px 24px; }
+  .nav-bar { top: 78px; }
+  .nav-bar-content { padding: 0 24px; }
+  .clinic-grid { padding: 16px 24px 60px; }
+  .mock-flag { padding: 12px 24px 0; }
+  .main-panel { padding: 24px 22px 26px; }
+}
+@media (max-width: 640px) {
+  .clinic-hero h1 { font-size: 26px; }
+  .clinic-hero .subtitle { font-size: 16px; }
+  .nav-links { overflow-x: auto; }
+  .banner-context, .banner-divider { display: none; }
+  .thread-stats { flex-direction: row; }
+}
+</style>
+</head>
+<body>
+
+<a href="#main" class="skip-link">Skip to content</a>
+
+<!-- ══ Top banner ══════════════════════════════════════════════════ -->
+<div class="top-banner">
+  <div class="top-banner-content">
+    <a href="https://medicine.nus.edu.sg/bch/">
+      <img src="https://medicine.nus.edu.sg/mscphm/website/website_assets/homepage/logo_biochem.png"
+           alt="Department of Biochemistry, NUS" class="biochem-logo"
+           onerror="this.style.display='none';document.getElementById('logoFallback').style.display='block';">
+    </a>
+    <a href="#" class="logo-fallback" id="logoFallback">NUS Biochemistry<small>Coding Clinic</small></a>
+    <div class="banner-divider"></div>
+    <div class="banner-context"><strong>Coding Clinic</strong>PHM5003 · Semester 1</div>
+
+    <div class="auth-chip">
+      <span class="auth-chip-name">you</span>
+      <span class="auth-chip-sep">·</span>
+      <button type="button" class="auth-chip-logout">Log out</button>
+    </div>
+    <button type="button" class="banner-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      <span>Settings</span>
+    </button>
+  </div>
+</div>
+
+<!-- ══ Nav bar ═════════════════════════════════════════════════════ -->
+<nav class="nav-bar" aria-label="Primary">
+  <div class="nav-bar-content">
+    <ul class="nav-links">
+      <li><a class="active" data-view="discussions">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        Discussions <span class="nav-count">8</span></a></li>
+      <li><a data-view="booking">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        Clinic booking <span class="nav-count">5</span></a></li>
+      <li><a>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        My profile</a></li>
+      <li><a>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><rect x="7" y="12" width="3" height="6"></rect><rect x="13" y="8" width="3" height="10"></rect></svg>
+        Admin <span class="nav-tag">Staff</span></a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="mock-flag">
+  <div class="mock-flag-inner">
+    <strong>Design mock.</strong> Static markup only — nothing is wired to the API. The nav tabs
+    <em>Discussions</em> and <em>Clinic booking</em> switch views so you can judge both surfaces;
+    everything else is decorative. Content is lifted from <code>mock-data.js</code> so the density is honest.
+  </div>
+</div>
+
+<!-- ══════════════════════════ DISCUSSIONS ═════════════════════════ -->
+<div class="view active" id="view-discussions">
+
+  <header class="clinic-hero">
+    <div class="hero-eyebrow">Ask · Answer · Book</div>
+    <h1>Discussions</h1>
+    <p class="subtitle">Post concepts, errors and debugging questions. Answered within one working
+      day — and if writing it up doesn't solve it, book a 20-minute slot on Thursday.</p>
+  </header>
+
+  <div class="clinic-grid">
+
+    <!-- ── left rail ─────────────────────────────────────────────── -->
+    <div class="side-col">
+      <aside class="side-card">
+        <div class="card-title"><span>Categories</span></div>
+        <a class="side-item active"><span>All discussions</span><span class="count">8</span></a>
+        <a class="side-item"><span>Environment &amp; setup</span><span class="count">1</span></a>
+        <a class="side-item"><span>Syntax &amp; errors</span><span class="count">0</span></a>
+        <a class="side-item"><span>Concepts</span><span class="count">1</span></a>
+        <a class="side-item"><span>Debugging</span><span class="count">2</span></a>
+        <a class="side-item"><span>Data wrangling</span><span class="count">1</span></a>
+        <a class="side-item"><span>Stats &amp; interpretation</span><span class="count">1</span></a>
+        <a class="side-item"><span>Assignments</span><span class="count">1</span></a>
+        <a class="side-item"><span>General</span><span class="count">1</span></a>
+      </aside>
+
+      <aside class="side-card">
+        <div class="card-title"><span>Language</span></div>
+        <a class="side-item"><span>Python</span><span class="count">5</span></a>
+        <a class="side-item"><span>R</span><span class="count">2</span></a>
+        <a class="side-item"><span>Bash / Linux</span><span class="count">1</span></a>
+      </aside>
+
+      <aside class="side-card">
+        <div class="card-title"><span>Labels</span></div>
+        <div class="label-cloud">
+          <a class="label-chip">python-basics <span class="n">1</span></a>
+          <a class="label-chip">pandas <span class="n">1</span></a>
+          <a class="label-chip">plotting <span class="n">1</span></a>
+          <a class="label-chip">statistics <span class="n">1</span></a>
+          <a class="label-chip">environment <span class="n">1</span></a>
+          <a class="label-chip">assignment <span class="n">1</span></a>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ── main ──────────────────────────────────────────────────── -->
+    <main class="main-panel" id="main">
+      <div class="panel-head">
+        <div>
+          <h2>All discussions</h2>
+          <div class="panel-sub">8 threads · 2 answered · 6 waiting</div>
+        </div>
+        <div class="spacer"></div>
+        <a class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          New discussion
+        </a>
+      </div>
+
+      <div class="toolbar">
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="20" y1="20" x2="16.7" y2="16.7"></line></svg>
+          <input class="search-input" type="search" placeholder="Search titles, bodies and replies…">
+        </div>
+        <div class="seg">
+          <button class="seg-btn active">Newest</button>
+          <button class="seg-btn">Top</button>
+          <button class="seg-btn">Unanswered</button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">Filter</span>
+        <button class="filter-chip active">All</button>
+        <button class="filter-chip">Open</button>
+        <button class="filter-chip">Answered</button>
+        <button class="filter-chip">Mine</button>
+      </div>
+
+      <div class="thread-list">
+
+        <a class="thread-row pinned">
+          <div class="thread-icon pin">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14l-1.6-2.4A4 4 0 0 1 16.7 12V6H7.3v6a4 4 0 0 1-.7 2.6z"></path></svg>
+          </div>
+          <div class="thread-main">
+            <div class="thread-title">Read first: how this clinic works</div>
+            <div class="thread-meta">
+              <span class="pill pill-pinned">Pinned</span>
+              <span class="pill pill-cat">General</span>
+              <span class="pill pill-lang">Python</span>
+              <span class="dot">·</span>
+              <span class="avatar orange">DC</span>
+              <span class="who">Dr Chee</span>
+              <span class="dot">·</span>
+              <span>38 days ago</span>
+            </div>
+          </div>
+          <div class="thread-stats">
+            <span class="stat-chip hot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>12</span>
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>4</span>
+          </div>
+        </a>
+
+        <a class="thread-row">
+          <div class="thread-icon answered">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
+          <div class="thread-main">
+            <div class="thread-title">conda activate: command not found in a WSL Ubuntu terminal</div>
+            <div class="thread-meta">
+              <span class="pill pill-answered">Answered</span>
+              <span class="pill pill-cat">Environment &amp; setup</span>
+              <span class="pill pill-lang">Bash/Linux</span>
+              <a class="label-chip">environment</a>
+              <span class="dot">·</span>
+              <span class="avatar">SG</span>
+              <span class="who">sgcoder</span>
+              <span class="dot">·</span>
+              <span>21 days ago</span>
+            </div>
+          </div>
+          <div class="thread-stats">
+            <span class="stat-chip hot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>9</span>
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>3</span>
+          </div>
+        </a>
+
+        <a class="thread-row">
+          <div class="thread-icon answered">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
+          <div class="thread-main">
+            <div class="thread-title">KeyError: "Age" when the column is clearly in the CSV</div>
+            <div class="thread-meta">
+              <span class="pill pill-answered">Answered</span>
+              <span class="pill pill-cat">Debugging</span>
+              <span class="pill pill-lang">Python</span>
+              <a class="label-chip">pandas</a>
+              <span class="dot">·</span>
+              <span class="avatar">Y</span>
+              <span class="who">you</span>
+              <span class="dot">·</span>
+              <span>17 days ago</span>
+            </div>
+          </div>
+          <div class="thread-stats">
+            <span class="stat-chip hot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>7</span>
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>2</span>
+          </div>
+        </a>
+
+        <a class="thread-row">
+          <div class="thread-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          </div>
+          <div class="thread-main">
+            <div class="thread-title">plt.show() opens a blank window and savefig writes a blank PNG</div>
+            <div class="thread-meta">
+              <span class="pill pill-open">Open</span>
+              <span class="pill pill-cat">Debugging</span>
+              <span class="pill pill-lang">Python</span>
+              <a class="label-chip">plotting</a>
+              <span class="dot">·</span>
+              <span class="avatar">Y</span>
+              <span class="who">you</span>
+              <span class="dot">·</span>
+              <span>11 days ago</span>
+            </div>
+          </div>
+          <div class="thread-stats">
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>4</span>
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>1</span>
+          </div>
+        </a>
+
+        <a class="thread-row">
+          <div class="thread-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          </div>
+          <div class="thread-main">
+            <div class="thread-title">Why does my list comprehension give me a list of Nones?</div>
+            <div class="thread-meta">
+              <span class="pill pill-open">Open</span>
+              <span class="pill pill-cat">Concepts</span>
+              <span class="pill pill-lang">Python</span>
+              <a class="label-chip">python-basics</a>
+              <span class="dot">·</span>
+              <span class="avatar">PF</span>
+              <span class="who">pandas_fan</span>
+              <span class="dot">·</span>
+              <span>8 days ago</span>
+            </div>
+          </div>
+          <div class="thread-stats">
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>5</span>
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>2</span>
+          </div>
+        </a>
+
+        <a class="thread-row">
+          <div class="thread-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          </div>
+          <div class="thread-main">
+            <div class="thread-title">merge() vs dplyr's left_join() in R — which one am I supposed to reach for?</div>
+            <div class="thread-meta">
+              <span class="pill pill-open">Open</span>
+              <span class="pill pill-cat">Data wrangling</span>
+              <span class="pill pill-lang">R</span>
+              <span class="dot">·</span>
+              <span class="avatar">SG</span>
+              <span class="who">sgcoder</span>
+              <span class="dot">·</span>
+              <span>6 days ago</span>
+            </div>
+          </div>
+          <div class="thread-stats">
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>3</span>
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>1</span>
+          </div>
+        </a>
+
+        <a class="thread-row">
+          <div class="thread-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          </div>
+          <div class="thread-main">
+            <div class="thread-title">Two-sample t-test gives p = 0.06 — do I say there is no difference?</div>
+            <div class="thread-meta">
+              <span class="pill pill-open">Open</span>
+              <span class="pill pill-cat">Stats &amp; interpretation</span>
+              <span class="pill pill-lang">R</span>
+              <a class="label-chip">statistics</a>
+              <span class="dot">·</span>
+              <span class="avatar">PF</span>
+              <span class="who">pandas_fan</span>
+              <span class="dot">·</span>
+              <span>2 days ago</span>
+            </div>
+          </div>
+          <div class="thread-stats">
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>2</span>
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>0</span>
+          </div>
+        </a>
+
+        <a class="thread-row">
+          <div class="thread-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          </div>
+          <div class="thread-main">
+            <div class="thread-title">Assignment 1 Q3: are we allowed to use pandas, or must it be plain Python?</div>
+            <div class="thread-meta">
+              <span class="pill pill-open">Open</span>
+              <span class="pill pill-cat">Assignments</span>
+              <span class="pill pill-lang">Python</span>
+              <a class="label-chip">assignment</a>
+              <span class="dot">·</span>
+              <span class="avatar anon">?</span>
+              <span class="who">Anonymous</span>
+              <span class="pill pill-anon">Anon</span>
+              <span class="dot">·</span>
+              <span>26 hours ago</span>
+            </div>
+          </div>
+          <div class="thread-stats">
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>6</span>
+            <span class="stat-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>1</span>
+          </div>
+        </a>
+
+      </div>
+
+      <div class="list-foot">Showing all 8 discussions</div>
+    </main>
+
+    <!-- ── right rail ────────────────────────────────────────────── -->
+    <div class="rail-col">
+      <aside class="rail-card">
+        <div class="card-title"><span>Next clinic</span></div>
+        <div class="clinic-when">
+          <div class="day">Thursday</div>
+          <div class="date">14 Aug</div>
+          <div class="time">13:00 – 16:00 SGT</div>
+        </div>
+        <div class="progress-track"><div class="progress-fill" style="width: 55%"></div></div>
+        <div class="progress-cap">5 of 9 slots still open</div>
+        <div class="cutoff-note">
+          Booking closes <strong>Wed 13 Aug, 23:59</strong>. Post a thread about your problem first,
+          then book and link it.
+        </div>
+        <div style="padding: 0 4px;">
+          <a class="btn btn-primary btn-sm btn-block">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            Book a slot
+          </a>
+        </div>
+      </aside>
+
+      <aside class="rail-card">
+        <div class="card-title"><span>Clinic notice</span></div>
+        <div class="notice-box">
+          Welcome! Post concepts, errors and debugging questions freely — <strong>do not post
+          assignment solution code</strong>. Questions are answered within 1 working day. Book a
+          clinic slot only after posting a thread about your issue.
+        </div>
+      </aside>
+
+      <aside class="rail-card">
+        <div class="card-title"><span>Top contributors</span><span class="card-title-note">This month</span></div>
+        <div class="lb-row top">
+          <span class="lb-rank">1</span><span class="avatar">SG</span>
+          <span class="lb-name">sgcoder</span><span class="lb-score">34</span>
+        </div>
+        <div class="lb-row top">
+          <span class="lb-rank">2</span><span class="avatar">PF</span>
+          <span class="lb-name">pandas_fan</span><span class="lb-score">28</span>
+        </div>
+        <div class="lb-row top">
+          <span class="lb-rank">3</span><span class="avatar">KT</span>
+          <span class="lb-name">kaitlyn_t</span><span class="lb-score">19</span>
+        </div>
+        <div class="lb-row me">
+          <span class="lb-rank">4</span><span class="avatar orange">Y</span>
+          <span class="lb-name">you</span><span class="lb-score">15</span>
+        </div>
+        <div class="lb-row">
+          <span class="lb-rank">5</span><span class="avatar">RM</span>
+          <span class="lb-name">raj_m</span><span class="lb-score">11</span>
+        </div>
+        <div class="lb-row">
+          <span class="lb-rank">6</span><span class="avatar">MH</span>
+          <span class="lb-name">minhui</span><span class="lb-score">7</span>
+        </div>
+        <div class="lb-note">Anonymous posts earn no points — anonymity beats the leaderboard.</div>
+      </aside>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════ BOOKING ═════════════════════════════ -->
+<div class="view" id="view-booking">
+
+  <header class="clinic-hero">
+    <div class="hero-eyebrow">Thursday · 20-minute slots</div>
+    <h1>Clinic booking</h1>
+    <p class="subtitle">One active booking at a time. Link the thread you already posted so the
+      session starts with the problem already understood.</p>
+  </header>
+
+  <div class="clinic-grid">
+
+    <div class="side-col">
+      <aside class="side-card">
+        <div class="card-title"><span>Upcoming clinics</span></div>
+        <a class="side-item active"><span>Thu 14 Aug</span><span class="count">5</span></a>
+        <a class="side-item"><span>Thu 21 Aug</span><span class="count">9</span></a>
+        <a class="side-item"><span>Thu 28 Aug</span><span class="count">9</span></a>
+      </aside>
+
+      <aside class="side-card">
+        <div class="card-title"><span>How it works</span></div>
+        <div class="notice-box" style="font-size: 12.5px;">
+          <strong>1.</strong> Post a thread describing the problem.<br>
+          <strong>2.</strong> Book a slot and link that thread.<br>
+          <strong>3.</strong> Turn up with the code that breaks.<br><br>
+          Half the time writing the thread solves it. When it doesn't, I arrive already knowing
+          what broke.
+        </div>
+      </aside>
+    </div>
+
+    <main class="main-panel">
+      <div class="panel-head">
+        <div>
+          <h2>Thursday 14 August</h2>
+          <div class="panel-sub">13:00 – 16:00 SGT · 20-minute slots · booking closes Wed 23:59</div>
+        </div>
+      </div>
+
+      <div class="stat-cards">
+        <div class="stat-card"><div class="sc-value">9</div><div class="sc-label">Slots</div></div>
+        <div class="stat-card accent"><div class="sc-value">5</div><div class="sc-label">Open</div></div>
+        <div class="stat-card"><div class="sc-value">4</div><div class="sc-label">Booked</div></div>
+        <div class="stat-card"><div class="sc-value">1d 6h</div><div class="sc-label">Until cutoff</div></div>
+      </div>
+
+      <div class="my-booking-card">
+        <div class="thread-icon pin" style="width: 42px; height: 42px; border-radius: 12px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </div>
+        <div>
+          <div class="mb-when">Thu 14 Aug · 14:20</div>
+          <div class="mb-sub">Linked thread: <a>plt.show() opens a blank window and savefig writes a blank PNG</a></div>
+        </div>
+        <div style="flex:1"></div>
+        <button class="btn btn-secondary btn-sm">Cancel booking</button>
+      </div>
+
+      <div class="card-title" style="padding-left: 0; margin-bottom: 14px;"><span>All slots</span><span class="card-title-note">Click an open slot to select it</span></div>
+
+      <div class="slot-grid">
+        <button class="slot-card taken"><div class="slot-time">13:00</div><div class="slot-status">Booked</div></button>
+        <button class="slot-card open"><div class="slot-time">13:20</div><div class="slot-status">Open</div></button>
+        <button class="slot-card taken"><div class="slot-time">13:40</div><div class="slot-status">Booked</div></button>
+        <button class="slot-card open"><div class="slot-time">14:00</div><div class="slot-status">Open</div></button>
+        <button class="slot-card mine"><div class="slot-time">14:20</div><div class="slot-status">Yours</div></button>
+        <button class="slot-card open"><div class="slot-time">14:40</div><div class="slot-status">Open</div></button>
+        <button class="slot-card taken"><div class="slot-time">15:00</div><div class="slot-status">Booked</div></button>
+        <button class="slot-card open"><div class="slot-time">15:20</div><div class="slot-status">Open</div></button>
+        <button class="slot-card open"><div class="slot-time">15:40</div><div class="slot-status">Open</div></button>
+      </div>
+
+      <div class="booking-panel">
+        <div class="bp-header">Book 14:00</div>
+        <div class="field">
+          <label class="field-label">Which thread is this about?</label>
+          <select class="select">
+            <option>plt.show() opens a blank window and savefig writes a blank PNG</option>
+            <option>KeyError: "Age" when the column is clearly in the CSV</option>
+            <option>— none of these, I'll describe it below —</option>
+          </select>
+          <div class="field-hint">Only threads you posted appear here. Post one first if the list is empty.</div>
+        </div>
+        <div class="field">
+          <label class="field-label">Anything to add before we meet? <span style="color:#94a3b8;font-weight:400">(optional)</span></label>
+          <textarea class="textarea" rows="3" placeholder="Anything that changed since you posted — what you've tried, a new error…"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary">Confirm booking</button>
+          <button class="btn btn-secondary">Cancel</button>
+          <span class="field-hint" style="margin:0">You already hold a slot — confirming will move it to 14:00.</span>
+        </div>
+      </div>
+    </main>
+
+    <div class="rail-col">
+      <aside class="rail-card">
+        <div class="card-title"><span>Cutoff</span></div>
+        <div class="clinic-when">
+          <div class="day">Closes in</div>
+          <div class="date">1d 6h</div>
+          <div class="time">Wed 13 Aug, 23:59</div>
+        </div>
+        <div class="progress-track"><div class="progress-fill" style="width: 78%"></div></div>
+        <div class="progress-cap">Week 78% elapsed</div>
+        <div class="cutoff-note">
+          After the cutoff the grid locks. <strong>Cancellations still free the slot</strong> for
+          anyone watching the board.
+        </div>
+      </aside>
+
+      <aside class="rail-card">
+        <div class="card-title"><span>Bring with you</span></div>
+        <div class="notice-box">
+          The <strong>exact</strong> error, all of it. The smallest piece of code that reproduces
+          it. What you already tried. And your data — which you cannot paste into a public board,
+          but can show me here.
+        </div>
+      </aside>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* Nav view switch — the only live behaviour in this mock. */
+(function () {
+  var links = document.querySelectorAll('.nav-links a[data-view]');
+  Array.prototype.forEach.call(links, function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      Array.prototype.forEach.call(document.querySelectorAll('.nav-links a'), function (x) {
+        x.classList.remove('active');
+      });
+      a.classList.add('active');
+      Array.prototype.forEach.call(document.querySelectorAll('.view'), function (v) {
+        v.classList.remove('active');
+      });
+      var target = document.getElementById('view-' + a.getAttribute('data-view'));
+      if (target) target.classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  /* Segmented controls + filter chips toggle so the mock feels alive. */
+  function group(sel) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel), function (btn) {
+      btn.addEventListener('click', function () {
+        var sibs = btn.parentNode.querySelectorAll(sel.split(' ').pop());
+        Array.prototype.forEach.call(sibs, function (s) { s.classList.remove('active'); });
+        btn.classList.add('active');
+      });
+    });
+  }
+  group('.seg .seg-btn');
+  group('.filter-row .filter-chip');
+
+  Array.prototype.forEach.call(document.querySelectorAll('.side-card .side-item'), function (item) {
+    item.addEventListener('click', function (e) {
+      e.preventDefault();
+      var sibs = item.parentNode.querySelectorAll('.side-item');
+      Array.prototype.forEach.call(sibs, function (s) { s.classList.remove('active'); });
+      item.classList.add('active');
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.slot-card.open'), function (card) {
+    card.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.slot-card'), function (c) {
+        c.classList.remove('selected');
+      });
+      card.classList.add('selected');
+      var head = document.querySelector('.booking-panel .bp-header');
+      if (head) head.textContent = 'Book ' + card.querySelector('.slot-time').textContent;
+    });
+  });
+})();
+</script>
+</body>
+</html>

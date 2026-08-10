@@ -22,27 +22,169 @@
   var WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   var NDASH = '–';
 
+  /* v3 adds a Settings tab. The config panel used to be appended to the bottom
+     of Slots, which was already a stretch at 11 fields; at 25 — including the
+     switch that makes the whole site read-only — nobody would ever find it.
+     Existing #slots links still work; #settings is new. */
   var TABS = [
     { key: 'overview', label: 'Overview' },
     { key: 'threads', label: 'Threads' },
     { key: 'bookings', label: 'Bookings' },
     { key: 'slots', label: 'Slots' },
+    { key: 'settings', label: 'Settings' },
     { key: 'export', label: 'Export' }
   ];
 
-  var CONFIG_FIELDS = [
-    { key: 'site_title', label: 'Site title', kind: 'text' },
-    { key: 'notice_text', label: 'Notice text', kind: 'textarea', hint: 'Shown in the sidebar on every page.' },
-    { key: 'categories', label: 'Categories', kind: 'text', hint: 'Comma-separated list.' },
-    { key: 'labels', label: 'Labels', kind: 'text', hint: 'Comma-separated list.' },
-    { key: 'clinic_day', label: 'Clinic day', kind: 'weekday' },
-    { key: 'clinic_start', label: 'Clinic start', kind: 'time' },
-    { key: 'clinic_end', label: 'Clinic end', kind: 'time' },
-    { key: 'slot_minutes', label: 'Slot length (minutes)', kind: 'number' },
-    { key: 'booking_cutoff_day', label: 'Booking cutoff day', kind: 'weekday' },
-    { key: 'booking_cutoff_time', label: 'Booking cutoff time', kind: 'time' },
-    { key: 'max_active_bookings', label: 'Max active bookings per student', kind: 'number' }
+  /* CONFIG_FIELDS — 28 entries, grouped. Eleven are the v2 originals; fourteen
+     are new in v3: `languages` (which was missing entirely — the language
+     boards could only be changed by editing the workbook by hand) plus the
+     thirteen admin-editable keys from contract §3.3. Three more arrive with
+     the clinic-location change: `clinic_mode`, `clinic_location` (which
+     existed in the workbook but was never admin-editable) and
+     `clinic_join_url`.
+
+     `numeric: true` marks the nine keys the FLOWS read with int(...). A blank
+     cell there does not fall back to a default — it throws, and it throws
+     inside meta.bootstrap, which would take the whole site down for the entire
+     cohort the moment an instructor cleared one of these boxes and pressed
+     Save. So blank is refused here, before the call, with a message naming the
+     field. admin.config.set refuses it as well; this is the polite half.
+
+     `zone: 'danger'` fields are drawn in the danger zone with their own
+     confirmation and are NOT part of the ordinary Save batch.
+
+     `kind: 'choice'` renders a <select> from an `options` array. `showWhen`
+     hides a field unless clinic_mode currently holds the named value — hides,
+     not removes: a hidden field keeps its value and stays in the Save batch,
+     so an instructor who types a room, then a Zoom link, then flips back to
+     "in person" does not lose either one (the batch only ever sends keys whose
+     value CHANGED, so a hidden untouched field sends nothing at all). */
+  var CONFIG_GROUPS = [
+    { key: 'board', label: 'Board' },
+    { key: 'clinic', label: 'Clinic scheduling' },
+    { key: 'chat', label: 'Chat and screenshots' },
+    { key: 'email', label: 'Email notifications' }
   ];
+
+  var CONFIG_FIELDS = [
+    { key: 'site_title', label: 'Site title', kind: 'text', group: 'board' },
+    { key: 'notice_text', label: 'Notice text', kind: 'textarea', group: 'board', hint: 'Shown in the sidebar on every page.' },
+    { key: 'categories', label: 'Categories', kind: 'text', group: 'board', hint: 'Comma-separated list.' },
+    { key: 'labels', label: 'Labels', kind: 'text', group: 'board', hint: 'Comma-separated list.' },
+    {
+      key: 'languages', label: 'Language boards', kind: 'text', group: 'board',
+      hint: 'Comma-separated list — the boards students choose between when they post, e.g. R,Python,Bash/Linux. ' +
+        'Renaming one does not move the threads already on it.'
+    },
+
+    /* Where the clinic runs comes before when it runs — a student asking
+       "where do I go?" is asking the more urgent question. The three keys are
+       read today only by the reminders flow (the .ics LOCATION line and the
+       "Where:" line of the reminder email); booking.html is not told the
+       location at all until meta.bootstrap projects it. */
+    {
+      key: 'clinic_mode', label: 'Where the clinic runs', kind: 'choice', group: 'clinic',
+      fallback: 'physical',
+      options: [
+        { value: 'physical', label: 'In person — a room on campus' },
+        { value: 'online', label: 'Online — over Zoom' }
+      ],
+      hint: 'This sets the location on the calendar invite attached to every reminder email, ' +
+        'and the “Where” line in the email itself. Changing it takes effect on the next reminder run, ' +
+        'not on bookings already in someone’s calendar. ' +
+        'If a save here appears to work but the room or the link never changes, the admin flow ' +
+        'still needs its re-import.'
+    },
+    {
+      key: 'clinic_location', label: 'Room', kind: 'text', group: 'clinic',
+      showWhen: { clinic_mode: 'physical' },
+      hint: 'Building, level and room — e.g. MD1 Level 3, Room 03-12. ' +
+        'Commas and semicolons are safe here; they are escaped before they reach the calendar file. ' +
+        'Left blank, reminder emails fall back to “see the booking page”.'
+    },
+    {
+      key: 'clinic_join_url', label: 'Zoom link', kind: 'url', group: 'clinic',
+      showWhen: { clinic_mode: 'online' },
+      hint: 'The full join link, starting https:// and including the ?pwd= part if there is one. ' +
+        'Paste it exactly as Zoom gives it — no spaces, no surrounding text, and no line breaks. ' +
+        'It goes into the calendar invite and is emailed to every student with a booking. ' +
+        'Reminder email is currently the ONLY way this link reaches a student: no page on the ' +
+        'site shows it, and the booking confirmation email does not carry it. So a student only ' +
+        'ever sees it if the reminders flow is imported and switched on AND “Send emails at ' +
+        'all” below is ticked. If either is off, send the link to the cohort yourself.'
+    },
+
+    { key: 'clinic_day', label: 'Clinic day', kind: 'weekday', group: 'clinic' },
+    { key: 'clinic_start', label: 'Clinic start', kind: 'time', group: 'clinic' },
+    { key: 'clinic_end', label: 'Clinic end', kind: 'time', group: 'clinic' },
+    { key: 'slot_minutes', label: 'Slot length (minutes)', kind: 'number', group: 'clinic' },
+    { key: 'booking_cutoff_day', label: 'Booking cutoff day', kind: 'weekday', group: 'clinic' },
+    { key: 'booking_cutoff_time', label: 'Booking cutoff time', kind: 'time', group: 'clinic' },
+    { key: 'max_active_bookings', label: 'Max active bookings per student', kind: 'number', group: 'clinic' },
+
+    {
+      key: 'chat_enabled', label: 'Direct messages', kind: 'bool', group: 'chat',
+      on: 'Students can message you privately',
+      hint: 'Off hides the Messages tab for everyone and refuses new messages. Nothing already sent is deleted.'
+    },
+    {
+      key: 'messages_poll_seconds', label: 'Message refresh (seconds)', kind: 'number', numeric: true, group: 'chat',
+      hint: 'How often an open conversation checks for new messages. 90 is the default. ' +
+        'Lower means faster chat and MORE Power Automate runs — 45 across a 60-student cohort is enough to throttle sign-in.'
+    },
+    {
+      key: 'attachments_enabled', label: 'Screenshot paste', kind: 'bool', group: 'chat',
+      on: 'Students can paste screenshots into a post or a message',
+      hint: 'Images go to your OneDrive, never to the public repo. Off makes pasting a no-op.'
+    },
+    {
+      key: 'attachment_max_kb', label: 'Largest screenshot (KB)', kind: 'number', numeric: true, group: 'chat',
+      hint: '1536 (1.5 MB) is the default. Every image is base64 in a flow run, so large ones are slow and bloat run history.'
+    },
+    {
+      key: 'attachments_daily_cap', label: 'Screenshots per student per day', kind: 'number', numeric: true, group: 'chat',
+      hint: 'Default 40. This is the brake on one student filling your OneDrive.'
+    },
+    {
+      key: 'messages_min_interval_seconds', label: 'Seconds between messages', kind: 'number', numeric: true, group: 'chat',
+      hint: 'Default 3. A per-sender throttle; it does not affect normal typing speed.'
+    },
+
+    {
+      key: 'notify_enabled', label: 'Send emails at all', kind: 'bool', group: 'email',
+      on: 'The site may send email',
+      hint: 'The global kill switch. Off silences reply notifications, booking reminders, escalations and the digest.'
+    },
+    {
+      key: 'notify_daily_cap', label: 'Reply emails per student per day', kind: 'number', numeric: true, group: 'email',
+      hint: 'Default 6. Applies to reply notifications only — booking reminders, escalations and your digest are exempt.'
+    },
+    {
+      key: 'digest_hour', label: 'Digest hour (SGT, 0–23)', kind: 'number', numeric: true, group: 'email',
+      hint: 'Default 20. Your nightly summary and the unanswered-thread escalation both run at this hour.'
+    },
+    {
+      key: 'escalation_hours', label: 'Escalate after (hours)', kind: 'number', numeric: true, group: 'email',
+      hint: 'Default 24. A thread with no reply from anyone but its author for this long is emailed to you once.'
+    },
+    {
+      key: 'reminder_day_before_hour', label: 'Reminder the day before (SGT hour)', kind: 'number', numeric: true, group: 'email',
+      hint: 'Default 18.'
+    },
+    {
+      key: 'reminder_day_of_hour', label: 'Reminder on clinic day (SGT hour)', kind: 'number', numeric: true, group: 'email',
+      hint: 'Default 12.'
+    },
+
+    /* D14. Deliberately not in the ordinary Save batch — see archiveZone(). */
+    { key: 'archive_mode', label: 'Archive the board', kind: 'bool', group: 'board', zone: 'danger' }
+  ];
+
+  /* One feature name for every v3 write this page makes. The first
+     "unknown action" answer means the admin flow has not had its v3 import
+     yet; after that the new controls go quiet for the session instead of
+     failing once per click. */
+  var MOD_FEATURE = 'moderate_v3';
 
   var state = {
     tab: 'overview',
@@ -118,10 +260,71 @@
     return /^(true|yes|1)$/i.test(String(v).trim());
   }
 
+  /* The stored value of a `kind: 'choice'` cell, resolved to one of the option
+     values the <select> actually carries — or '' when it matches none of them.
+
+     This mirrors the flow, character for character: every reader of
+     clinic_mode is `toLower(trim(...))`, so a cell holding 'Online' or
+     ' ONLINE ' means online everywhere in the system. The select cannot show
+     that unless the value is normalised first, and a select showing the wrong
+     option does not merely look wrong — it SAVES wrong, because the Save batch
+     compares the control's value against the raw snapshot and sends the
+     difference. Normalising here is what stops a merely differently-cased cell
+     being silently rewritten to 'physical'.
+
+     Note this only ever maps a value onto an option that already means the
+     same thing. A genuinely unrecognised value still returns '' and still
+     falls through to the field's fallback. */
+  function normaliseChoice(f, stored) {
+    var norm = String(stored === undefined || stored === null ? '' : stored)
+      .replace(/^\s+|\s+$/g, '').toLowerCase();
+    var options = f.options || [];
+    var i;
+    for (i = 0; i < options.length; i++) {
+      if (String(options[i].value).toLowerCase() === norm) return options[i].value;
+    }
+    return '';
+  }
+
   function listOf(v) {
     if (Array.isArray(v)) return v.slice();
     return String(v || '').split(',').map(function (s) { return s.trim(); })
       .filter(function (s) { return s.length; });
+  }
+
+  /* ------------------------------------------------- v3 feature detection
+
+     Prefer api.js's isUnknownAction. ui.js's is pinned to /unknown action/i,
+     which does NOT match the live admin flow's actual wording for an op it does
+     not know — "Unknown moderation action." (admin.definition.json:1242). Using
+     the narrow one here would leave the new lock/duplicate/endorse buttons
+     retrying forever against a flow that will never learn them. */
+  function unknownAction(e) {
+    if (api && typeof api.isUnknownAction === 'function') {
+      try { return !!api.isUnknownAction(e); } catch (ignore) { /* fall through */ }
+    }
+    return !!(e && e.code === 'bad_request' &&
+      /unknown\s+(?:[a-z]+\s+)?(?:action|op|operation)\b/i.test(e.message || e.error || ''));
+  }
+  function featureOff(name) {
+    try { if (typeof ui.featureOff === 'function') ui.featureOff(name); } catch (e) { /* ignore */ }
+  }
+  function featureAvailable(name) {
+    try { return typeof ui.featureState === 'function' ? ui.featureState(name) !== 'off' : true; }
+    catch (e) { return true; }
+  }
+
+  /* The shared "not switched on yet" strip (§9.3a, §10.10). Dashed, muted,
+     never --danger: a backend that has not been re-imported must produce a
+     quiet, complete-looking page, not a red one. */
+  function inertNote(title, text) {
+    var box = el('div', 'inert-note');
+    box.appendChild(iconEl('info'));
+    var body = el('div');
+    if (title) body.appendChild(el('span', 'inert-note-title', title));
+    body.appendChild(document.createTextNode(text));
+    box.appendChild(body);
+    return box;
   }
 
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -294,6 +497,16 @@
     return (u && u.display_name) || (userId ? String(userId) : '');
   }
 
+  function dupeOf(t) { return String((t && t.duplicate_of) || '').replace(/^\s+|\s+$/g, ''); }
+  function repliesOf(threadId) {
+    return state.posts.filter(function (p) { return p.thread_id === threadId && !truthy(p.deleted); })
+      .sort(function (a, b) { return (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0); });
+  }
+  function snippet(text, n) {
+    var s = String(text || '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+    return s.length > n ? s.slice(0, n - 1) + '…' : s;
+  }
+
   function displayAuthor(row) { return truthy(row.is_anonymous) ? 'Anonymous' : userName(row.author_id); }
   function realName(row) { return truthy(row.is_anonymous) ? userName(row.author_id) : ''; }
   function votesFor(type, id) { return state.voteCount[type + ':' + id] || 0; }
@@ -398,6 +611,21 @@
     head.appendChild(right);
     main.appendChild(head);
 
+    /* D14, from the instructor's side. Without this the dashboard looks totally
+       normal while every student is staring at a read-only board, and "why can
+       nobody post" becomes a support question instead of a visible state. */
+    if (truthy(state.config.archive_mode)) {
+      var ab = el('div', 'archive-banner');
+      ab.appendChild(iconEl('lock'));
+      var abTxt = el('div');
+      abTxt.appendChild(el('strong', '', 'The board is archived and read-only.'));
+      abTxt.appendChild(document.createTextNode(
+        'Nobody — including you — can post, reply, vote, accept an answer or send a message. ' +
+        'Reading, searching and these exports all still work. Reopen it under Settings.'));
+      ab.appendChild(abTxt);
+      main.appendChild(ab);
+    }
+
     var tabs = el('div', 'tab-bar');
     tabs.setAttribute('role', 'tablist');
     TABS.forEach(function (t) {
@@ -430,7 +658,15 @@
     else if (state.tab === 'threads') renderThreads(panel);
     else if (state.tab === 'bookings') renderBookings(panel);
     else if (state.tab === 'slots') renderSlots(panel);
+    else if (state.tab === 'settings') renderSettings(panel);
     else renderExport(panel);
+  }
+
+  function renderSettings(panel) {
+    panel.appendChild(el('p', 'muted fs-small mb-16',
+      'Everything the site reads out of the Config table. Changes take effect for a student on their ' +
+      'next page load — there is nothing to redeploy and nothing to re-import.'));
+    panel.appendChild(settingsBox());
   }
 
   /* ------------------------------------------------------------ overview */
@@ -669,6 +905,23 @@
     titleTd.appendChild(a);
     if (truthy(t.pinned)) titleTd.appendChild(el('span', 'badge-pinned', 'Pinned'));
     if (truthy(t.deleted)) titleTd.appendChild(el('span', 'badge', 'Deleted'));
+    /* v3 state. Both columns may be missing entirely on a pre-migration
+       workbook — truthy(undefined) is false and dupeOf() returns '', so the
+       row renders exactly as it did in v2. */
+    if (truthy(t.locked)) {
+      var lb = el('span', 'badge-locked');
+      lb.appendChild(iconEl('lock'));
+      lb.appendChild(el('span', '', 'Locked'));
+      titleTd.appendChild(lb);
+    }
+    var dup = dupeOf(t);
+    if (dup) {
+      var db = el('span', 'badge-duplicate');
+      db.appendChild(iconEl('copy'));
+      db.appendChild(el('span', '', 'Duplicate'));
+      db.title = 'Duplicate of: ' + (threadTitle(dup) || dup);
+      titleTd.appendChild(db);
+    }
     tr.appendChild(titleTd);
 
     tr.appendChild(el('td', '', t.category || ''));
@@ -780,6 +1033,59 @@
         });
       });
 
+    /* ------------------------------------------------------- v3 ops (§4.4) */
+    if (featureAvailable(MOD_FEATURE)) {
+      items.push({ sep: true });
+
+      items.push({
+        label: truthy(t.locked) ? 'Unlock — allow replies again' : 'Lock — stop new replies and votes',
+        onClick: function () {
+          var was = t.locked;
+          moderate(
+            { op: truthy(was) ? 'unlock_thread' : 'lock_thread', thread_id: t.thread_id },
+            function () { t.locked = truthy(was) ? 'FALSE' : 'TRUE'; },
+            function () { t.locked = was; },
+            truthy(was) ? 'Unlocked.' : 'Locked. It stays readable, and students can still message you.'
+          );
+        }
+      });
+
+      if (dupeOf(t)) {
+        items.push({
+          label: 'Clear the duplicate mark',
+          onClick: function () {
+            var was = t.duplicate_of;
+            /* clear_duplicate writes duplicate_of and NOTHING else — status,
+               accepted_post_id and locked are all left exactly as they were, so
+               a thread that was already answered and already locked before it
+               was marked comes back unchanged. That is the whole reason the
+               "also lock" step below is a separate call. */
+            moderate(
+              { op: 'clear_duplicate', thread_id: t.thread_id },
+              function () { t.duplicate_of = ''; },
+              function () { t.duplicate_of = was; },
+              truthy(t.locked)
+                ? 'Duplicate mark cleared. It is still locked — unlock it separately if that was only for the duplicate.'
+                : 'Duplicate mark cleared.'
+            );
+          }
+        });
+      } else {
+        items.push({
+          label: 'Mark as duplicate…',
+          onClick: function () { markDuplicate(t); }
+        });
+      }
+
+      var replies = repliesOf(t.thread_id);
+      if (replies.length) {
+        items.push({
+          label: 'Endorse a reply…' ,
+          onClick: function () { endorsePicker(t, replies); }
+        });
+      }
+    }
+
     items.push({ sep: true });
     if (truthy(t.deleted)) {
       items.push({
@@ -816,6 +1122,212 @@
     return items;
   }
 
+  /* ==========================================================================
+   * A small modal picker — shared by "mark as duplicate" and "endorse a reply"
+   * ---------------------------------------------------------------------------
+   * ui.confirmModal() is yes/no only, and a window.prompt asking the instructor
+   * to type a thread_id is how you get typos written into the workbook. This is
+   * the same dialog contract §10.9 pins for thread.js's picker: role="dialog"
+   * aria-modal="true", focus into the filter box, Tab trapped, Escape closes,
+   * focus restored to whatever opened it.
+   * ========================================================================*/
+  function pickerModal(opts) {
+    /* opts = {title, hint, rows:[{id,title,meta}], emptyText, extra?:node,
+               onPick(id)} */
+    var opener = document.activeElement;
+    var backdrop = el('div', 'modal-backdrop');
+    var modal = el('div', 'modal');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+
+    var header = el('div', 'modal-header', opts.title);
+    var body = el('div', 'modal-body');
+    if (opts.hint) body.appendChild(el('p', 'field-hint mt-0', opts.hint));
+
+    var filter = el('input', 'input');
+    filter.type = 'search';
+    filter.placeholder = 'Filter…';
+    filter.setAttribute('aria-label', 'Filter the list');
+    body.appendChild(filter);
+
+    var list = el('div', 'col gap-8 mt-8');
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', opts.title);
+    list.style.maxHeight = '38vh';
+    list.style.overflowY = 'auto';
+    body.appendChild(list);
+
+    if (opts.extra) body.appendChild(opts.extra);
+
+    var footer = el('div', 'modal-footer');
+    var cancel = el('button', 'btn', 'Cancel');
+    cancel.type = 'button';
+    footer.appendChild(cancel);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    backdrop.appendChild(modal);
+
+    var done = false;
+    function close() {
+      if (done) return;
+      done = true;
+      document.removeEventListener('keydown', onKey, true);
+      if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+      if (opener && opener.focus) { try { opener.focus(); } catch (e) { /* ignore */ } }
+    }
+    function focusables() {
+      var all = modal.querySelectorAll('button, input, [tabindex]:not([tabindex="-1"])');
+      var out = [];
+      for (var i = 0; i < all.length; i++) if (!all[i].disabled && all[i].offsetParent !== null) out.push(all[i]);
+      return out;
+    }
+    function onKey(ev) {
+      if (ev.key === 'Escape' || ev.keyCode === 27) { ev.preventDefault(); close(); return; }
+      if (ev.key !== 'Tab') return;
+      var f = focusables();
+      if (!f.length) return;
+      var first = f[0], last = f[f.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
+
+    function paint() {
+      clear(list);
+      var q = filter.value.toLowerCase().replace(/^\s+|\s+$/g, '');
+      var rows = opts.rows.filter(function (r) {
+        if (!q) return true;
+        return (String(r.title) + ' ' + String(r.meta || '')).toLowerCase().indexOf(q) !== -1;
+      }).slice(0, 60);
+      if (!rows.length) {
+        list.appendChild(el('p', 'field-hint mt-0', opts.emptyText || 'Nothing matches that.'));
+        return;
+      }
+      rows.forEach(function (r) {
+        var b = el('button', 'btn btn-sm');
+        b.type = 'button';
+        b.setAttribute('role', 'option');
+        b.style.textAlign = 'left';
+        b.style.display = 'block';
+        b.style.width = '100%';
+        b.appendChild(el('span', '', r.title));
+        if (r.meta) {
+          var m = el('span', 'field-hint mt-0', r.meta);
+          m.style.display = 'block';
+          b.appendChild(m);
+        }
+        b.addEventListener('click', function () {
+          var id = r.id;
+          close();
+          opts.onPick(id);
+        });
+        list.appendChild(b);
+      });
+    }
+
+    cancel.addEventListener('click', close);
+    backdrop.addEventListener('mousedown', function (ev) { if (ev.target === backdrop) close(); });
+    document.addEventListener('keydown', onKey, true);
+    filter.addEventListener('input', paint);
+
+    document.body.appendChild(backdrop);
+    paint();
+    try { filter.focus(); } catch (e) { /* ignore */ }
+  }
+
+  /* D13. set_duplicate first, then lock_thread as a SEPARATE call when the box
+     is ticked. Never one op that writes both: the prior status and lock state
+     are nowhere recorded, so an op that bundled them could never be undone
+     cleanly — see the long note in mock-data.js's admin.moderate. */
+  function markDuplicate(t) {
+    var cbRow = el('div', 'checkbox-row mt-8');
+    var lockBox = el('input');
+    lockBox.type = 'checkbox';
+    lockBox.id = 'adm-dupe-lock';
+    lockBox.checked = true;
+    var lab = el('label', '', 'Also lock this discussion');
+    lab.htmlFor = 'adm-dupe-lock';
+    cbRow.appendChild(lockBox);
+    cbRow.appendChild(lab);
+    var extra = el('div');
+    extra.appendChild(cbRow);
+    extra.appendChild(el('div', 'field-hint',
+      'Locking is a separate change. Clearing the duplicate mark later will not unlock it.'));
+
+    var rows = state.threads.filter(function (o) {
+      return o.thread_id !== t.thread_id && !truthy(o.deleted);
+    }).sort(function (a, b) {
+      return (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0);
+    }).map(function (o) {
+      return {
+        id: o.thread_id,
+        title: o.title || '(untitled)',
+        meta: (o.category || '') + ' · ' + fmtStampSgt(o.created_at)
+      };
+    });
+
+    pickerModal({
+      title: 'Mark as a duplicate',
+      hint: 'Pick the earlier discussion “' + (t.title || '') + '” repeats. It stays readable and keeps ' +
+        'its replies — it drops out of the unanswered count and points at the original.',
+      rows: rows,
+      emptyText: 'No other discussions to point at.',
+      extra: extra,
+      onPick: function (targetId) {
+        var alsoLock = lockBox.checked;
+        var wasDupe = t.duplicate_of;
+        var wasLock = t.locked;
+        moderate(
+          { op: 'set_duplicate', thread_id: t.thread_id, duplicate_of: targetId },
+          function () { t.duplicate_of = targetId; },
+          function () { t.duplicate_of = wasDupe; },
+          'Marked as a duplicate.'
+        );
+        if (alsoLock && !truthy(wasLock)) {
+          moderate(
+            { op: 'lock_thread', thread_id: t.thread_id },
+            function () { t.locked = 'TRUE'; },
+            function () { t.locked = wasLock; },
+            'Locked as well.'
+          );
+        }
+      }
+    });
+  }
+
+  /* D10 from the dashboard. thread.html is the primary surface for this — it is
+     where the instructor actually reads the answer — but the six new ops all
+     need a home here too, and "which reply did I endorse on that thread from
+     last week" is a dashboard question. */
+  function endorsePicker(t, replies) {
+    pickerModal({
+      title: 'Endorse a reply',
+      hint: 'Endorsing says “this is correct” in your name. It is not the same as the asker marking ' +
+        'it as the answer, and a reply can carry both.',
+      rows: replies.map(function (p) {
+        return {
+          id: p.post_id,
+          title: (truthy(p.endorsed) ? '★ ' : '') + displayAuthor(p) + ' — ' + snippet(p.body_md, 90),
+          meta: fmtStampSgt(p.created_at) + (truthy(p.endorsed) ? ' · endorsed — pick to remove' : '')
+        };
+      }),
+      emptyText: 'No replies on this thread.',
+      onPick: function (postId) {
+        var p = null;
+        state.posts.forEach(function (row) { if (row.post_id === postId) p = row; });
+        if (!p) return;
+        var was = p.endorsed;
+        moderate(
+          { op: truthy(was) ? 'unendorse_post' : 'endorse_post', post_id: postId },
+          function () { p.endorsed = truthy(was) ? 'FALSE' : 'TRUE'; },
+          function () { p.endorsed = was; },
+          truthy(was) ? 'Endorsement removed.' : 'Endorsed.'
+        );
+      }
+    });
+  }
+
   function moderate(payload, apply, undo, okMsg) {
     apply();
     renderPanel();
@@ -823,6 +1335,16 @@
       toast(okMsg, 'success');
     })['catch'](function (e) {
       undo();
+      /* A v3 op against a flow that predates it. Turn the whole new control set
+         inert for the session and say so once, in the language of "not switched
+         on yet" rather than "that failed" — because nothing failed. */
+      if (unknownAction(e)) {
+        featureOff(MOD_FEATURE);
+        renderPanel();
+        toast('Locking, duplicates and endorsements need the v3 admin flow import. ' +
+          'Everything else on this page still works.', '');
+        return;
+      }
       renderPanel();
       toast(errMsg(e, 'That change did not save.'), 'error');
     });
@@ -957,10 +1479,20 @@
 
     var bar = el('div', 'toolbar');
     bar.appendChild(el('h2', 'side-title grow', 'Coming slots (' + coming.length + ')'));
+    /* max was 12, which could not reach the end of a 13-week semester from week
+       one — the flow counts weeks forward from the NEXT clinic day, so 12 topped
+       out in late October for an August start. 26 covers any single semester.
+       Generation is safe to repeat: admin.slots.generate filters the times it is
+       about to write against the slot_ids already present (f_new_times), so a
+       re-run with a larger number only adds the missing weeks.
+       BUT it writes serially with the Response AFTER the loop, so a large run can
+       exceed the ~120s HTTP response window. Generate in steps of about 5 weeks
+       rather than 26 in one go. If a run does time out, the flow keeps going
+       server-side and the rows still land — re-run rather than assume failure. */
     var weeksIn = el('input', 'input input-sm');
     weeksIn.type = 'number';
     weeksIn.min = '1';
-    weeksIn.max = '12';
+    weeksIn.max = '26';
     weeksIn.value = '4';
     weeksIn.style.width = '64px';
     weeksIn.setAttribute('aria-label', 'Number of weeks to generate');
@@ -997,7 +1529,6 @@
     panel.appendChild(t.wrap);
 
     panel.appendChild(addSlotBox());
-    panel.appendChild(settingsBox());
   }
 
   function slotRow(s, booking) {
@@ -1117,6 +1648,29 @@
     return box;
   }
 
+  /* Has the workbook migration actually happened? admin.export hands back the
+     whole tbl_Config map, so the presence of a v3 row is a direct, honest test
+     — far better than saving into a flow whose whitelist silently drops the key
+     and reporting success. Absent → one .inert-note instead of a dozen switches
+     that appear to save and do not (§10.10). */
+  function hasV3Config() {
+    return state.config.chat_enabled !== undefined || state.config.archive_mode !== undefined;
+  }
+
+  /* Same test, for the clinic-location rows specifically. They arrive in their
+     own wave, after the v3 block, so a workbook can perfectly well have every
+     v3 row and none of these. `clinic_mode` is the sentinel rather than
+     `clinic_location`: that row has existed since v2 (blank, and not
+     admin-editable), so its presence proves nothing.
+
+     Absent → the three controls are withheld and one .inert-note appears in
+     their place. Showing them would be worse than useless: admin.config.set's
+     whitelist would drop all three keys and still answer ok:true, so the page
+     would say "Saved 3 settings." and change nothing at all. */
+  function hasLocationConfig() {
+    return state.config.clinic_mode !== undefined;
+  }
+
   function settingsBox() {
     var box = el('div', 'box mt-24');
     box.appendChild(el('div', 'box-header', 'Clinic settings'));
@@ -1124,12 +1678,39 @@
     body.appendChild(el('p', 'muted fs-small mb-16',
       'These write straight to the Config table. Only the fields you change are sent.'));
 
+    var v3 = hasV3Config();
+    var loc = hasLocationConfig();
     var original = {};
     var inputs = {};
+    /* The outer .field div for each key, kept so showWhen can hide one without
+       touching the control inside it (hiding the wrapper takes the label and
+       the hint with it). */
+    var wrappers = {};
 
-    CONFIG_FIELDS.forEach(function (f) {
+    function fieldNode(f) {
       var cur = state.config[f.key] === undefined ? '' : String(state.config[f.key]);
       original[f.key] = cur;
+
+      /* A real checkbox, not a text box you type TRUE into. The stored value is
+         still the string 'TRUE'/'FALSE' — tbl_Config is a two-column text sheet
+         and a mixed-type column is a known Excel-connector corruption trap. */
+      if (f.kind === 'bool') {
+        var bwrap = el('div', 'field');
+        var brow = el('div', 'checkbox-row');
+        var cb = el('input');
+        cb.type = 'checkbox';
+        cb.id = 'cfg-' + f.key;
+        cb.checked = truthy(cur);
+        var blab = el('label', '', f.on || f.label);
+        blab.htmlFor = 'cfg-' + f.key;
+        brow.appendChild(cb);
+        brow.appendChild(blab);
+        bwrap.appendChild(brow);
+        if (f.hint) bwrap.appendChild(el('div', 'field-hint', f.hint));
+        inputs[f.key] = cb;
+        wrappers[f.key] = bwrap;
+        return bwrap;
+      }
 
       var wrap = el('div', 'field');
       var lab = el('label', 'field-label', f.label);
@@ -1150,21 +1731,133 @@
           extra.value = cur;
           input.appendChild(extra);
         }
+      } else if (f.kind === 'choice') {
+        /* A closed list of values the flow will accept. Unlike the weekday
+           select there is no "keep whatever is in the cell" escape option: the
+           whole point of clinic_mode is that it holds one of exactly two
+           words, and offering a third would let the instructor save a value
+           every reader then silently treats as 'physical'. An unrecognised
+           stored value falls back below, next to input.value. */
+        input = el('select', 'select');
+        (f.options || []).forEach(function (o) {
+          var opt = el('option', '', o.label);
+          opt.value = o.value;
+          input.appendChild(opt);
+        });
       } else {
         input = el('input', 'input');
         if (f.kind === 'time') input.type = 'time';
-        if (f.kind === 'number') { input.type = 'number'; input.min = '1'; }
+        if (f.kind === 'number') { input.type = 'number'; input.min = f.numeric ? '0' : '1'; }
+        /* type="url" costs nothing, gives a sensible keyboard on a phone and is
+           a second free client-side check. Spellcheck off because a Zoom link
+           is not prose and the red underline reads as an error. */
+        if (f.kind === 'url') {
+          input.type = 'url';
+          input.setAttribute('autocomplete', 'off');
+          input.setAttribute('spellcheck', 'false');
+          input.setAttribute('placeholder', 'https://nus-sg.zoom.us/j/...');
+        }
       }
       input.id = 'cfg-' + f.key;
-      input.value = cur;
+      /* A choice select is fed the NORMALISED stored value, not the raw one.
+         Every flow-side reader resolves this cell with toLower(trim(...)), so
+         'Online', ' online ' and 'ONLINE' all mean online to the reminders
+         flow — but none of them is character-for-character equal to the option
+         value 'online', so a raw assignment leaves select.value === '' and the
+         fallback below silently rewrites the cell to 'physical' on the next
+         Save of ANY field. That is a clinic quietly flipping from Zoom to a
+         room with no prompt and no toast, and the hand-edited workbook is
+         exactly the state the .inert-note tells the instructor to create. */
+      input.value = (f.kind === 'choice') ? normaliseChoice(f, cur) : cur;
+      /* Still blank means genuinely unrecognisable — blank cell, missing row,
+         a typo like 'zoom'. That resolves the way every flow-side reader
+         resolves it: anything that is not the recognised word means
+         'physical'. */
+      if (f.kind === 'choice' && input.value === '' && f.fallback) input.value = f.fallback;
       wrap.appendChild(input);
       if (f.hint) wrap.appendChild(el('div', 'field-hint', f.hint));
-      body.appendChild(wrap);
       inputs[f.key] = input;
+      wrappers[f.key] = wrap;
+      return wrap;
+    }
+
+    function valueOf(f) {
+      var node = inputs[f.key];
+      if (!node) return null;
+      if (f.kind === 'bool') return node.checked ? 'TRUE' : 'FALSE';
+      /* A URL is trimmed on the way out, not just validated. A pasted link
+         routinely carries a trailing space, and while the reminders flow trims
+         again at read time, storing the space would leave a cell whose
+         contents do not match what was checked here. Only 'url' — trimming
+         every field would quietly rewrite notice_text. */
+      if (f.kind === 'url') return String(node.value).replace(/^\s+|\s+$/g, '');
+      return String(node.value);
+    }
+
+    /* The batch: every field except the danger-zone ones, and only the v3
+       groups once the workbook actually has their rows. */
+    function batchFields() {
+      return CONFIG_FIELDS.filter(function (f) {
+        if (f.zone === 'danger') return false;
+        if (!v3 && (f.group === 'chat' || f.group === 'email')) return false;
+        if (!v3 && f.key === 'languages') return false;
+        if (!loc && (f.key === 'clinic_mode' || f.key === 'clinic_location' || f.key === 'clinic_join_url')) return false;
+        return true;
+      });
+    }
+
+    CONFIG_GROUPS.forEach(function (g) {
+      var fields = batchFields().filter(function (f) { return f.group === g.key; });
+      if (!fields.length) return;
+      body.appendChild(el('h3', 'side-title mt-16', g.label));
+      fields.forEach(function (f) { body.appendChild(fieldNode(f)); });
     });
 
+    /* ------------------------------------------------- conditional fields
+       Room and Zoom link are mutually exclusive to LOOK at, not to hold. Only
+       the one matching the selected mode is on screen; the other keeps its
+       value in the DOM so flipping physical → online → physical does not make
+       the instructor retype the room. */
+
+    function setHidden(node, hide) {
+      var cls = node.className.replace(/(^|\s)hidden(?=\s|$)/g, '');
+      node.className = hide ? (cls + ' hidden') : cls;
+    }
+
+    function applyShowWhen() {
+      var modeNode = inputs.clinic_mode;
+      if (!modeNode) return;
+      var mode = String(modeNode.value);
+      CONFIG_FIELDS.forEach(function (f) {
+        if (!f.showWhen || !wrappers[f.key]) return;
+        setHidden(wrappers[f.key], mode !== f.showWhen.clinic_mode);
+      });
+    }
+
+    if (inputs.clinic_mode) inputs.clinic_mode.addEventListener('change', applyShowWhen);
+    applyShowWhen();
+
+    if (!loc) {
+      body.appendChild(inertNote('Clinic location',
+        'Setting the room or the Zoom link from here needs two more rows in the Config table ' +
+        'and a re-import of the admin flow. Until both are done, the clinic location can only be ' +
+        'changed in the workbook by hand.'));
+    }
+
+    if (!v3) {
+      body.appendChild(inertNote('Chat, screenshots and email settings',
+        'These appear once the workbook has been migrated to v3 — the Config table does not carry ' +
+        'their rows yet, and writing them now would look like it saved and change nothing. ' +
+        'See V3_CONTRACT §12, wave 1.'));
+    }
+
+    /* --------------------------------------------------------- danger zone
+       Declared before the Save handler runs but appended after the fields, so
+       the passcode boxes are still part of the one Save batch, exactly as in
+       v2. The archive switch below is NOT — it has its own button. */
+
     /* passcode mode lives in its own danger zone — it weakens sign-in */
-    var zone = el('div', 'danger-zone');
+    var zone = el('div', 'danger-zone mt-24');
     zone.appendChild(el('h3', '', 'Shared class passcode'));
     zone.appendChild(el('p', '',
       'Shared passcodes are weaker — anyone who learns it can read the forum; identities unverified.'));
@@ -1196,10 +1889,68 @@
     save.type = 'button';
     save.addEventListener('click', function () {
       var entries = {};
-      CONFIG_FIELDS.forEach(function (f) {
-        var v = String(inputs[f.key].value);
+      var bad = null;
+      batchFields().forEach(function (f) {
+        var v = valueOf(f);
+        if (v === null) return;
+        /* The nine int(...) keys. A blank one does not fall back flow-side, it
+           throws — inside meta.bootstrap, i.e. it takes the site down for the
+           whole cohort. Refuse it here with the field's own name. */
+        if (f.numeric && v !== original[f.key] && !/^\d+$/.test(String(v).replace(/^\s+|\s+$/g, ''))) {
+          if (!bad) bad = f.label;
+          return;
+        }
         if (v !== original[f.key]) entries[f.key] = v;
       });
+      if (bad) {
+        toast('“' + bad + '” needs a whole number — it cannot be left blank.', 'error');
+        return;
+      }
+
+      /* ------------------------------------------------- clinic location
+         The same three rules admin.config.set enforces, run here purely so the
+         instructor reads them in a quarter of a second instead of after a
+         10-21 second round trip. The FLOW is the gate; this is the polite
+         half, exactly as with the numeric fields above.
+
+         "Effective", not "submitted": the batch only sends keys that changed,
+         so the cross-field rule has to read the live controls rather than
+         `entries`. Both controls exist whether visible or hidden, which is why
+         the hidden-but-populated case works at all.
+
+         Gated on the same touch test the flow uses (touch_loc_cs — mode or link
+         submitted, and deliberately NOT the room). Without the gate this is an
+         outage rather than a validation: an instructor whose workbook was
+         hand-edited to online-with-no-link would have every save on this page
+         refused — site_title included — with a message about the Zoom link, and
+         the flow would have accepted every one of them. */
+      var touchedLoc = entries.clinic_mode !== undefined || entries.clinic_join_url !== undefined;
+      var effMode = touchedLoc && inputs.clinic_mode ? String(inputs.clinic_mode.value) : '';
+      var effUrl = touchedLoc && inputs.clinic_join_url
+        ? String(inputs.clinic_join_url.value).replace(/^\s+|\s+$/g, '') : '';
+
+      if (effUrl && effUrl.slice(0, 8).toLowerCase() !== 'https://') {
+        toast('The Zoom link must start with https:// — http:// links are refused.', 'error');
+        return;
+      }
+      /* The same four whitespace characters the flow tests for, and no more:
+         space, tab, CR, LF. A wider /\s/ would refuse a non-breaking space the
+         flow accepts, which is the wrong way round for a check whose only job is
+         to be faster than the round trip. */
+      if (effUrl && (effUrl.length < 12 || effUrl.length > 200 ||
+        effUrl.indexOf(' ') !== -1 || effUrl.indexOf('\t') !== -1 ||
+        effUrl.indexOf('\r') !== -1 || effUrl.indexOf('\n') !== -1)) {
+        toast('The Zoom link must be one complete address with no spaces in it, under 200 characters.', 'error');
+        return;
+      }
+      /* Last, so the two more specific messages above win. This is the rule
+         that actually matters: an online clinic with no link tells 60 students
+         to meet online and gives them nothing to click. */
+      if (effMode === 'online' && !effUrl) {
+        toast('An online clinic needs a Zoom link — add the link, or switch back to a room.', 'error');
+        return;
+      }
+
       var pmVal = pm.checked ? 'TRUE' : 'FALSE';
       if (pmVal !== (truthy(state.config.passcode_mode) ? 'TRUE' : 'FALSE')) entries.passcode_mode = pmVal;
       if (String(cp.value) !== String(state.config.class_passcode || '')) entries.class_passcode = String(cp.value);
@@ -1220,8 +1971,64 @@
     });
     body.appendChild(save);
 
+    if (v3) body.appendChild(archiveZone());
+
     box.appendChild(body);
     return box;
+  }
+
+  /* ==========================================================================
+   * D14 — end-of-semester archive
+   * ---------------------------------------------------------------------------
+   * Deliberately NOT a checkbox in the batch above. It changes what every page
+   * on the site does for every student at once, and the instructor should have
+   * to read a sentence about that before it happens. It IS reversible — that is
+   * the single most important thing to say, because an irreversible-feeling
+   * switch that is actually reversible gets left un-flipped out of fear.
+   * ========================================================================*/
+  function archiveZone() {
+    var on = truthy(state.config.archive_mode);
+    var zone = el('div', 'danger-zone mt-24');
+    zone.appendChild(el('h3', '', on ? 'The board is archived' : 'End-of-semester archive'));
+    zone.appendChild(el('p', '', on
+      ? 'Right now the whole site is read-only. Students can read, search and export; nothing new can ' +
+        'be posted, replied to, voted on, accepted or sent as a message. Turning it back off restores ' +
+        'writing immediately — no redeploy, no import.'
+      : 'Turning this on makes the whole site read-only for everyone, including you: no new threads, ' +
+        'replies, votes, accepted answers or direct messages, and a banner on every page saying so. ' +
+        'Reading, searching and the CSV exports keep working. It is fully reversible from this same ' +
+        'switch — nothing is deleted and nothing is archived off.'));
+
+    var btn = el('button', 'btn ' + (on ? 'btn-primary' : 'btn-danger'),
+      on ? 'Reopen the board' : 'Archive the board for the semester');
+    btn.type = 'button';
+    btn.addEventListener('click', function () {
+      var next = on ? 'FALSE' : 'TRUE';
+      confirmModal(on
+        ? 'Reopen the board? Students will be able to post, reply, vote and message again straight away.'
+        : 'Archive the board? Every student loses the ability to post, reply, vote, accept an answer or ' +
+          'send you a message, from the moment their next page load finishes. Everything stays readable ' +
+          'and you can undo this from the same button.')
+        .then(function (yes) {
+          if (!yes) return;
+          btn.disabled = true;
+          btn.textContent = 'Saving…';
+          api.call('admin.config.set', { entries: { archive_mode: next } }).then(function () {
+            state.config.archive_mode = next;
+            toast(on ? 'The board is open again.' : 'The board is archived and read-only.', 'success');
+            /* renderShell, not renderPanel: the site-wide banner lives above the
+               tab bar, so a panel-only redraw would leave the dashboard looking
+               completely normal while every student sees a read-only board. */
+            renderShell();
+          })['catch'](function (e) {
+            btn.disabled = false;
+            btn.textContent = on ? 'Reopen the board' : 'Archive the board for the semester';
+            toast(errMsg(e, 'That did not save — the board is unchanged.'), 'error');
+          });
+        });
+    });
+    zone.appendChild(btn);
+    return zone;
   }
 
   /* -------------------------------------------------------------- export */

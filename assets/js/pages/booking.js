@@ -87,6 +87,34 @@
 
   function errMsg(e, fallback) { return (e && (e.message || e.error)) || fallback; }
 
+  /* ---------------------------------------------------------------- retry
+     The Excel Online connector behind every flow can take up to ~30s (rarely
+     more) for a write to become visible to a subsequent read, and any single
+     call can itself take 10-20s even when it succeeds. retryWhile(fn,
+     delaysMs, shouldRetry) calls fn(attempt), and if the settled outcome
+     (value on success, err on failure) says "not yet" per
+     shouldRetry(err, value), waits delaysMs[attempt] — always a setTimeout
+     under a Promise, never a busy wait — and tries again. Once delaysMs is
+     exhausted the last outcome is returned as-is. Used to confirm a booking
+     has shown up in slots.list before trusting an empty result, and to
+     recheck after a transport-level failure that may have gone through
+     server-side anyway. */
+  function waitMs(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+  function retryWhile(fn, delaysMs, shouldRetry) {
+    function attempt(i) {
+      return fn(i).then(function (value) {
+        if (i >= delaysMs.length || !shouldRetry(null, value)) return value;
+        return waitMs(delaysMs[i]).then(function () { return attempt(i + 1); });
+      }, function (err) {
+        if (i >= delaysMs.length || !shouldRetry(err, undefined)) throw err;
+        return waitMs(delaysMs[i]).then(function () { return attempt(i + 1); });
+      });
+    }
+    return attempt(0);
+  }
+
   /* ------------------------------------------------------- SGT date utils
      SGT is a fixed UTC+8 offset (no DST), so we shift the epoch by +8h and
      read the UTC getters. No dependency on Intl timezone data. */
@@ -168,21 +196,7 @@
       state.config = res[2] || state.config;
       state.me = currentUser();
 
-      var now = Date.now();
-      state.slots = (slotsRes.slots || []).filter(function (s) {
-        var end = slotEndMs(s);
-        return isNaN(end) ? true : end > now;
-      }).sort(function (a, b) { return slotStartMs(a) - slotStartMs(b); });
-
-      var booking = slotsRes.my_booking || null;
-      if (booking && booking.status && booking.status !== 'confirmed') booking = null;
-      state.myBooking = booking;
-
-      state.cutoffIso = slotsRes.cutoff_iso || '';
-      var cut = Date.parse(state.cutoffIso);
-      state.cutoffPassed = !isNaN(cut) && Date.now() > cut;
-
-      state.dates = groupByDate(state.slots);
+      applySlotsResult(slotsRes);
 
       state.threads = threadsRes.__error ? [] : (threadsRes.threads || []);
       var myId = state.me && state.me.user_id;
@@ -198,6 +212,28 @@
         toast('Could not load your threads — ' + errMsg(threadsRes.__error, 'try refreshing.'), 'error');
       }
     });
+  }
+
+  /* Pure state update from a slots.list response — split out of load() so the
+     booking-confirmation retries can recheck just this, without re-fetching
+     threads.list/config (10-20s each) on every attempt too. */
+  function applySlotsResult(slotsRes) {
+    slotsRes = slotsRes || {};
+    var now = Date.now();
+    state.slots = (slotsRes.slots || []).filter(function (s) {
+      var end = slotEndMs(s);
+      return isNaN(end) ? true : end > now;
+    }).sort(function (a, b) { return slotStartMs(a) - slotStartMs(b); });
+
+    var booking = slotsRes.my_booking || null;
+    if (booking && booking.status && booking.status !== 'confirmed') booking = null;
+    state.myBooking = booking;
+
+    state.cutoffIso = slotsRes.cutoff_iso || '';
+    var cut = Date.parse(state.cutoffIso);
+    state.cutoffPassed = !isNaN(cut) && Date.now() > cut;
+
+    state.dates = groupByDate(state.slots);
   }
 
   function loadConfig() {
@@ -612,6 +648,127 @@
     return '';
   }
 
+  var BOOKING_CONFIRM_DELAYS_MS = [2000, 4000];
+
+  /* Re-checks slots.list, retrying while our own booking has not shown up
+     yet. A read hiccup here does not mean the booking failed, so an error is
+     treated the same as "not visible yet" rather than given up on. */
+  function waitForMyBooking() {
+    return retryWhile(function () {
+      return api.call('slots.list', {}).then(applySlotsResult);
+    }, BOOKING_CONFIRM_DELAYS_MS, function (err) {
+      if (err) return true;
+      return !state.myBooking;
+    });
+  }
+
+  /* Full-panel "hold on" state shown while a booking is confirmed either way
+     — instead of re-rendering the ordinary slot grid / booking form, which
+     is exactly what could get a student to book the same slot twice. */
+  function confirmingState(message) {
+    var main = document.getElementById('booking-main');
+    if (!main) return;
+    clear(main);
+    var box = el('div', 'empty-state');
+    box.appendChild(el('span', 'spinner'));
+    box.appendChild(el('h3', '', 'Confirming your booking…'));
+    box.appendChild(el('p', '', message ||
+      'This can take a few seconds. Please do not close this page or submit again.'));
+    main.appendChild(box);
+  }
+
+  /* slots.book resolved ok. If slots.list has not caught up yet, wait rather
+     than flicker back to a bookable-looking page; if it still has not caught
+     up once we give up waiting, fall back to what we already know locally
+     (we do have a booking_id) instead of ever showing the form again. */
+  function onBookingAccepted(res, vals) {
+    confirmingState();
+    var optimistic = {
+      booking_id: (res && res.booking_id) || '',
+      slot_id: state.selected && state.selected.slot_id,
+      thread_id: vals.thread_id,
+      full_name: vals.full_name,
+      phone: vals.phone,
+      email: vals.email,
+      note: vals.note,
+      status: 'confirmed'
+    };
+    waitForMyBooking()['catch'](function () { /* still booked server-side even if the recheck errored */ })
+      .then(function () {
+        if (!state.myBooking) state.myBooking = optimistic;
+        state.selected = null;
+        toast('Slot booked — a confirmation is on its way to your email.', 'success');
+        render();
+      });
+  }
+
+  /* --------------------------------------------------- the ok:true verdict
+     slots.book has two different ok:true answers, and until now they were
+     indistinguishable from here: the row is yours, or the row was written and
+     immediately rolled back because someone else won the race for that slot
+     (the flow's `race_lost` branch). Treating a rollback as a success shows
+     "Slot booked — a confirmation is on its way" to a student who has no
+     booking, and the confirming spinner then waits out its retries against a
+     slots.list that will never show one.
+
+     The flow is gaining an explicit `status` for exactly this. The re-import
+     is a separate manual step, so BOTH shapes have to work: a backend that
+     predates the field sends no `status` at all, and for those an ok:true
+     still means accepted, exactly as before. Anything unrecognised also reads
+     as accepted — never invent a failure the server did not report. */
+  function bookingVerdict(res) {
+    var s = res && res.status;
+    if (typeof s !== 'string') return 'accepted';
+    s = s.toLowerCase();
+    /* 'race_lost' is the flow's own internal name for this branch; accept it
+       alongside 'rejected' so the two cannot drift apart on wording. */
+    if (s === 'rejected' || s === 'race_lost') return 'rejected';
+    return 'accepted';
+  }
+
+  /* status:'rejected' — the slot went to someone else and the student has NO
+     booking. This is the same situation an older flow reports as a 'conflict'
+     rejection, so it lands in the same place: server's own wording, form left
+     usable, thread kept selected, grid refreshed. */
+  function onBookingRejected(res, vals, btn, original, errBox) {
+    btn.disabled = false;
+    btn.textContent = original;
+    var msg = (res && typeof res.message === 'string' && res.message)
+      || (res && typeof res.error === 'string' && res.error)
+      || 'Someone booked that slot a moment before you did — please pick another one.';
+    showError(errBox, msg);
+    toast(msg, 'error');
+    state.selected = null;
+    state.wantThread = vals.thread_id;
+    refresh();
+  }
+
+  /* slots.book itself came back as a network error / 502 / timeout — api.js
+     surfaces every transport-level failure as code 'network'. The write may
+     well have gone through and only the response was lost, so recheck
+     before ever telling the student it failed. */
+  function onBookingTransportFailure(vals) {
+    confirmingState('Checking whether that went through — this can take a few seconds.');
+    waitForMyBooking()['catch'](function () { /* exhausted; still unconfirmed below */ })
+      .then(function () {
+        if (state.myBooking) {
+          state.selected = null;
+          toast('Slot booked — a confirmation is on its way to your email.', 'success');
+          render();
+          return;
+        }
+        /* Genuinely could not confirm either way. Re-show the same slot's
+           form (pre-selecting the thread again) rather than leaving the
+           student stuck — if the first attempt actually did go through,
+           max_active_bookings makes a resubmit fail fast with 'conflict'
+           rather than create a second booking. */
+        state.wantThread = vals.thread_id;
+        renderMain();
+        toast('We could not confirm your booking — reload this page before trying again, ' +
+          'in case it did go through.', 'error');
+      });
+  }
+
   function submitBooking(vals, btn, errBox) {
     btn.disabled = true;
     var original = btn.textContent;
@@ -625,25 +782,46 @@
       email: vals.email,
       thread_id: vals.thread_id,
       note: vals.note
-    }).then(function () {
-      toast('Slot booked — a confirmation is on its way to your email.', 'success');
-      state.selected = null;
-      return refresh();
+    }).then(function (res) {
+      if (bookingVerdict(res) === 'rejected') {
+        onBookingRejected(res, vals, btn, original, errBox);
+        return;
+      }
+      onBookingAccepted(res, vals);
     })['catch'](function (e) {
+      var code = e && e.code;
+      if (code === 'network') {
+        onBookingTransportFailure(vals);
+        return;
+      }
       btn.disabled = false;
       btn.textContent = original;
-      var code = e && e.code;
       if (code === 'conflict') {
-        showError(errBox, 'That slot was just taken — pick another one.');
-        toast('That slot was just taken.', 'error');
+        /* NEVER substitute our own wording here. One 'conflict' code covers
+           two opposite situations:
+             "That slot has just been taken…"            -> pick another slot
+             "You already have a clinic slot booked…"    -> picking another
+                                                            slot can NEVER work
+           The old hard-coded "That slot was just taken — pick another one."
+           told a student who already holds a booking to do the one thing
+           guaranteed to fail, on every slot, forever. Show what the server
+           actually said; it is written for the student in both cases.
+           state.selected is cleared and the grid refreshed either way — the
+           refresh is what surfaces the existing booking card for chk_active. */
+        var conflictMsg = errMsg(e, 'That slot was just taken — pick another one.');
+        showError(errBox, conflictMsg);
+        toast(conflictMsg, 'error');
         state.selected = null;
-        return refresh();
+        state.wantThread = vals.thread_id;
+        refresh();
+        return;
       }
       if (code === 'cutoff_passed') {
         showError(errBox, 'Bookings for this week have closed.');
         toast('Bookings for this week have closed.', 'error');
         state.selected = null;
-        return refresh();
+        refresh();
+        return;
       }
       showError(errBox, errMsg(e, 'Could not book that slot. Try again in a moment.'));
       if (code !== 'bad_request') toast(errMsg(e, 'Could not book that slot.'), 'error');

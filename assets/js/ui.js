@@ -25,6 +25,17 @@
      Clinic.ui.getTheme() / setTheme(t) / toggleTheme()
      Clinic.ui.apiCall(action, data)      -> Promise<data>  (compat shim over Clinic.api)
 
+   v3 ADDITIONS (contract §10.6) — nobody re-implements these
+     Clinic.ui.setNavBadge(tabKey, count) stash + draw the nav unread counter
+     Clinic.ui.setTabVisible(key, bool)   show/hide a nav tab, then re-render
+     Clinic.ui.truthy(v)                  the ONE mixed-type wire-boolean test
+     Clinic.ui.instructorIds()            -> [] when config is absent
+     Clinic.ui.instructorUserId()         -> '' when config is absent
+     Clinic.ui.isInstructorAuthor(author) -> false for anon and for no config
+     Clinic.ui.featureOn/Off/State(name)  'unknown' | 'on' | 'off'
+     Clinic.ui.isUnknownAction(err)       the FEATURE-ABSENT detector
+     Clinic.ui.endpointFor(action)        'auth' | 'admin' | 'msg' | 'app'
+
    NOTE — avatar(), icon() and pill() return real DOM elements whose
    toString() is overridden to return outerHTML, so BOTH styles work:
        box.appendChild(Clinic.ui.icon('tag'));
@@ -336,7 +347,22 @@
     'three-bars':
       '<path d="M2 4h12M2 8h12M2 12h12"/>',
     'sort':
-      '<path d="M4 3.5v9M1.75 10.25 4 12.5l2.25-2.25M12 12.5v-9M9.75 5.75 12 3.5l2.25 2.25"/>'
+      '<path d="M4 3.5v9M1.75 10.25 4 12.5l2.25-2.25M12 12.5v-9M9.75 5.75 12 3.5l2.25 2.25"/>',
+    /* --- v3 additions. Exactly three; everything else the v3 contract needs
+       (mail, search, shield, comment-discussion, check-circle, trophy, copy)
+       already existed. Same 16x16 outline grammar as everything above:
+       stroke-only paths, currentColor, no fill unless DOT says so. --- */
+    'lock':
+      '<rect x="2.75" y="7" width="10.5" height="7.25" rx="1.6"/>' +
+      '<path d="M5.25 7V4.9a2.75 2.75 0 0 1 5.5 0V7"/>' +
+      '<circle cx="8" cy="10.6" r=".95"' + DOT + '/>',
+    'star':
+      '<path d="M8 1.75l1.93 3.91 4.32.63-3.13 3.05.74 4.3L8 11.61l-3.86 2.03' +
+      '.74-4.3-3.13-3.05 4.32-.63Z"/>',
+    'image':
+      '<rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.75"/>' +
+      '<circle cx="5.6" cy="6.2" r="1.1"' + DOT + '/>' +
+      '<path d="M2.25 11.75 6 8.25l2.4 2.2 2.35-2.35 2.9 2.9"/>'
   };
 
   function iconMarkup(name, className) {
@@ -556,10 +582,16 @@
      also copes with call(endpoint, action, data) and with the convenience
      methods, and normalises {ok,data,error,code} envelopes / thrown errors. */
   /* action prefix -> flow endpoint (only used by the 3-arg fallback) */
+  /* v3: mirrors api.js's endpointFor (site/assets/js/api.js) including the
+     MSG_URL condition. The condition is NOT decoration — before wave 3 the
+     config has no MSG_URL, api.js falls through to APP_URL, and this copy has
+     to agree with it or the 3-arg fallback would post a messages.* action to a
+     flow name that does not exist. */
   function endpointFor(action) {
     var prefix = String(action).split('.')[0];
     if (prefix === 'auth') return 'auth';
     if (prefix === 'admin') return 'admin';
+    if ((prefix === 'messages' || prefix === 'attach') && config().MSG_URL) return 'msg';
     return 'app';
   }
 
@@ -606,11 +638,33 @@
      Header
      ------------------------------------------------------------------ */
 
+  /* TABS entries carry three pieces of mutable state that setNavBadge() and
+     setTabVisible() write and renderHeader() reads:
+       hidden : true  -> not rendered at all
+       count  : N     -> a .counter.nav-counter and ", N unread" on aria-label
+     They live on the entry, NOT in the DOM, because renderHeader() does
+     host.innerHTML = '' and runs at least twice on every page load (once from
+     the DOMContentLoaded safety net, once from the page script). A badge
+     patched only into the DOM disappears on the second render, and which
+     render wins depends on load timing — a genuinely horrible bug to chase. */
   var TABS = [
     {
       key: 'discussions', label: 'Discussions', href: 'index.html',
       icon: 'comment-discussion',
       match: ['discussions', 'index', 'index.html', 'thread', 'thread.html', 'new', 'new.html', '']
+    },
+    {
+      key: 'search', label: 'Search', href: 'search.html',
+      icon: 'search',
+      match: ['search', 'search.html']
+    },
+    {
+      /* ships hidden. unread.js reveals it with setTabVisible('messages',true)
+         only after messages.unread has actually answered, so a backend that
+         has not been imported yet shows no dead nav entry. */
+      key: 'messages', label: 'Messages', href: 'messages.html',
+      icon: 'mail', hidden: true,
+      match: ['messages', 'messages.html']
     },
     {
       key: 'booking', label: 'Clinic booking', href: 'booking.html',
@@ -623,6 +677,11 @@
       match: ['admin', 'admin.html', 'dashboard']
     }
   ];
+
+  function tabByKey(key) {
+    for (var i = 0; i < TABS.length; i++) if (TABS[i].key === key) return TABS[i];
+    return null;
+  }
 
   var lastActive = null;
 
@@ -750,6 +809,13 @@
     btn.type = 'button';
     btn.setAttribute('aria-haspopup', 'true');
     btn.setAttribute('aria-expanded', 'false');
+    /* The button has to carry its OWN accessible name, because at ≤479px it has
+       nothing else: the avatar is aria-hidden (see avatar()), .user-menu-name is
+       display:none, and the caret is an empty <span>. Without this the only
+       route to Sign out announced as "button, collapsed" and nothing more — on
+       exactly the screens where it is already hardest to find. */
+    btn.setAttribute('aria-label',
+      'Account menu' + (user.display_name ? ' — ' + user.display_name : ''));
     btn.appendChild(avatar(user, 20));
     btn.appendChild(el('span', 'user-menu-name', user.display_name || 'Account'));
     btn.appendChild(el('span', 'user-menu-caret'));
@@ -763,6 +829,12 @@
       (user.role === 'instructor' ? 'Instructor' : 'Student') +
       (user.email ? ' · ' + user.email : '')));
     menu.appendChild(head);
+
+    var profileLink = el('a', 'menu-item', 'Profile');
+    profileLink.href = 'profile.html';
+    profileLink.insertBefore(icon('person'), profileLink.firstChild);
+    profileLink.addEventListener('click', function () { closeMenu(); });
+    menu.appendChild(profileLink);
 
     var edit = el('button', 'menu-item', 'Edit display name');
     edit.type = 'button';
@@ -815,6 +887,58 @@
     return wrap;
   }
 
+  /* Writes (or clears) the unread affordance on one nav anchor.
+     The counter is aria-hidden and the accessible name lives on the anchor —
+     otherwise a screen reader reads "Messages 3", and at ≤479px, where the
+     label is clipped away, it would read just "3". */
+  function applyTabBadge(anchor, tab) {
+    if (!anchor) return;
+    var n = Number(tab && tab.count);
+    if (!isFinite(n) || n < 0) n = 0;
+    n = Math.floor(n);
+
+    var span = anchor.querySelector('.nav-counter');
+    if (n > 0) {
+      if (!span) {
+        span = el('span', 'counter nav-counter');
+        span.setAttribute('aria-hidden', 'true');
+        anchor.appendChild(span);
+      }
+      span.textContent = n > 99 ? '99+' : String(n);
+      anchor.setAttribute('aria-label', tab.label + ', ' + n + ' unread');
+    } else {
+      if (span && span.parentNode) span.parentNode.removeChild(span);
+      anchor.setAttribute('aria-label', tab.label);
+    }
+  }
+
+  function navAnchor(tabKey) {
+    var host = document.getElementById('app-header');
+    if (!host) return null;
+    return host.querySelector('.app-nav a[data-tab="' + tabKey + '"]');
+  }
+
+  /* Stash first, patch second. See the comment on TABS for why the stash is
+     the load-bearing half. */
+  function setNavBadge(tabKey, count) {
+    var tab = tabByKey(tabKey);
+    if (!tab) return;
+    tab.count = Number(count) || 0;
+
+    var anchor = navAnchor(tabKey);
+    if (anchor) applyTabBadge(anchor, tab);
+    else renderHeader(lastActive);
+  }
+
+  function setTabVisible(tabKey, visible) {
+    var tab = tabByKey(tabKey);
+    if (!tab) return;
+    var next = !visible;
+    if (tab.hidden === next) return;      /* no pointless re-render */
+    tab.hidden = next;
+    renderHeader(lastActive);
+  }
+
   function renderHeader(active) {
     var host = document.getElementById('app-header');
     if (!host) return null;
@@ -836,10 +960,18 @@
     nav.setAttribute('aria-label', 'Primary');
     TABS.forEach(function (tab) {
       if (tab.instructorOnly && !isInstructor()) return;
+      /* A hidden tab is still drawn when it IS the current page: landing on
+         messages.html with the feature switched off should give you a nav with
+         a highlighted current item and an inert page, not a nav that silently
+         disagrees with the address bar. */
+      if (tab.hidden && tab.key !== activeKey) return;
+
       var a = el('a', 'app-nav-item' + (tab.key === activeKey ? ' active' : ''));
       a.href = tab.href;
+      a.setAttribute('data-tab', tab.key);
       a.appendChild(icon(tab.icon));
-      a.appendChild(document.createTextNode(tab.label));
+      a.appendChild(el('span', 'app-nav-label', tab.label));
+      applyTabBadge(a, tab);
       if (tab.key === activeKey) a.setAttribute('aria-current', 'page');
       nav.appendChild(a);
     });
@@ -878,6 +1010,98 @@
     if (main && main.parentNode === layout) layout.insertBefore(side, main);
     else layout.appendChild(side);
     return side;
+  }
+
+  /* ---------------------------------------------------------------------
+     v3 shared helpers (contract §10.6). NOBODY re-implements any of these —
+     seven owners emitting seven slightly different answers to "is this the
+     instructor?" or "is this wire boolean true?" is exactly how a badge ends
+     up on the wrong post.
+     ------------------------------------------------------------------ */
+
+  /* The ONE normaliser for mixed-type wire booleans. Excel hands back TRUE,
+     'TRUE', 'true', 1 and '1' for the same column depending on how the cell
+     was written, and gotcha 16 says it will keep doing so. */
+  function truthy(v) {
+    if (v === true || v === 1) return true;
+    if (v === false || v === null || v === undefined) return false;
+    var s = String(v).trim().toLowerCase();
+    return s === 'true' || s === '1';
+  }
+
+  function instructorIds() {
+    var ids = bootstrapConfig().instructor_ids;
+    return Object.prototype.toString.call(ids) === '[object Array]' ? ids : [];
+  }
+
+  function instructorUserId() {
+    return bootstrapConfig().instructor_user_id || '';
+  }
+
+  /* An anonymous post is never badged, whoever wrote it — that is the whole
+     point of anonymity, and the instructor posting anonymously is a real case
+     (§5.6). Absent config means an empty list means no badge ANYWHERE, which
+     is the correct degradation: never a wrong badge. */
+  function isInstructorAuthor(author) {
+    if (!author) return false;
+    var id = author.user_id;
+    if (!id || id === 'anon') return false;
+    return instructorIds().indexOf(id) !== -1;
+  }
+
+  /* Feature registry. sessionStorage, not localStorage: "the backend does not
+     support this yet" is true for a session, and a stale 'off' surviving a
+     re-import for weeks would be worse than one probe per session. */
+  var FEATURES_KEY = 'clinic_features';
+
+  function featuresRead() {
+    try {
+      var raw = window.sessionStorage.getItem(FEATURES_KEY);
+      var obj = raw ? JSON.parse(raw) : null;
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (e) { return {}; }
+  }
+
+  function featuresWrite(name, state) {
+    var all = featuresRead();
+    all[String(name)] = state;
+    try {
+      window.sessionStorage.setItem(FEATURES_KEY, JSON.stringify(all));
+    } catch (e) { /* private mode: the registry degrades to per-page-load */ }
+  }
+
+  function featureOn(name) { featuresWrite(name, 'on'); }
+  function featureOff(name) { featuresWrite(name, 'off'); }
+
+  function featureState(name) {
+    var v = featuresRead()[String(name)];
+    return v === 'on' || v === 'off' ? v : 'unknown';
+  }
+
+  /* FEATURE-ABSENT detector. The app flow's Switch default, the mock dispatcher
+     and admin.moderate's op Switch default all return code 'bad_request' with
+     some form of "unknown ... action" in the sentence; matching on that pair is
+     what lets every owner call a new action once and then go quiet instead of
+     retrying into a flow that will never know it.
+
+     THIS USED TO BE PINNED TO /unknown action/i AND WAS WRONG. The live admin
+     flow says "Unknown moderation action." — a word in the MIDDLE — so this
+     returned false for every admin.* op and any owner who followed §10.6 would
+     have retried a not-yet-imported flow forever. api.js's detector already
+     handled all three wordings, so:
+       1. delegate to api.js when it is loaded (single source of truth), and
+       2. keep a local regex with the same shape for the case where ui.js is
+          used without api.js (it must never widen or narrow relative to it).
+     Both detectors must keep agreeing. If you change one, change the other. */
+  var RE_UNKNOWN_ACTION = /unknown\s+(?:[a-z]+\s+)?(?:action|op|operation)\b/i;
+
+  function isUnknownAction(err) {
+    var api = window.Clinic && window.Clinic.api;
+    if (api && typeof api.isUnknownAction === 'function') {
+      try { return !!api.isUnknownAction(err); } catch (e) { /* fall through */ }
+    }
+    return !!(err && err.code === 'bad_request' &&
+      RE_UNKNOWN_ACTION.test(err.message || err.error || ''));
   }
 
   /* ---------------------------------------------------------------------
@@ -926,6 +1150,19 @@
   ui.normaliseError = normaliseError;
   ui.editDisplayName = editDisplayName;
   ui.logout = logout;
+
+  /* --- v3 (contract §10.6) --- */
+  ui.setNavBadge = setNavBadge;
+  ui.setTabVisible = setTabVisible;
+  ui.truthy = truthy;
+  ui.instructorIds = instructorIds;
+  ui.instructorUserId = instructorUserId;
+  ui.isInstructorAuthor = isInstructorAuthor;
+  ui.featureOn = featureOn;
+  ui.featureOff = featureOff;
+  ui.featureState = featureState;
+  ui.isUnknownAction = isUnknownAction;
+  ui.endpointFor = endpointFor;
 
   /* Safety net: if a page forgets to call renderHeader(), still draw the
      chrome (with the tab auto-detected from the URL). Page scripts load
