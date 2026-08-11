@@ -335,6 +335,7 @@
   var me = null;
   var model = { thread: null, posts: [] };
   var voted = {};                /* target_id -> true                        */
+  var voteSettleUntil = {};      /* target_id -> ms epoch the button reopens */
   var topContrib = {};           /* user_id -> true, all-time top 3          */
   var replyParent = '';          /* '' = top-level reply                     */
   var draft = { body: '', anon: false };
@@ -541,6 +542,41 @@
      thread or archived board), or '' when voting is live. votes.toggle is
      guarded flow-side for both (§5.4); this only stops the student spending
      15 seconds to be told no. */
+  /* --- why a vote button goes quiet for a moment after you use it ----------
+     A write to this workbook becomes readable only after tens of seconds
+     (measured against the live tenant on 2026-08-11: 26.5 s, 28.4 s, 53.7 s).
+     `votes.toggle` decides add-or-remove by re-reading tbl_Votes, so a second
+     click inside that window cannot see the first write, takes the target for
+     unvoted, and inserts a SECOND row — one person counted twice, both on the
+     board and in the contributor score that feeds the leaderboard.
+
+     Nothing flow-side can fix that: the row genuinely is not readable yet, so
+     the flow is not wrong, it is blind. The only place the second write can be
+     prevented is here, by not issuing it. The button therefore stays disabled
+     until the write must have landed, and says so. Keyed by target rather than
+     by element because a re-render builds a new button for the same target. */
+  var VOTE_SETTLE_MS = 45000;
+
+  function voteSettleLeft(targetId) {
+    var until = voteSettleUntil[targetId] || 0;
+    return Math.max(0, until - Date.now());
+  }
+
+  function applyVoteSettle(b, targetId, repaint) {
+    var left = voteSettleLeft(targetId);
+    if (left <= 0) return false;
+    b.disabled = true;
+    b.title = 'Counting your vote — you can change it in ' +
+      Math.ceil(left / 1000) + 's';
+    b.setAttribute('aria-label', b.title);
+    window.setTimeout(function () {
+      if (!b.isConnected) return;          /* re-rendered away; the new one re-arms */
+      b.disabled = false;
+      if (repaint) repaint();
+    }, left);
+    return true;
+  }
+
   function voteButton(targetType, targetId, count, selfOwned, frozen) {
     var b = el('button', 'vote-btn');
     b.type = 'button';
@@ -559,6 +595,10 @@
       b.setAttribute('aria-label', b.title + ' — ' + n + ' so far');
     }
     paint(!!voted[targetId], Number(count) || 0);
+    /* a re-render during the settle window must not hand back a live button */
+    applyVoteSettle(b, targetId, function () {
+      paint(!!voted[targetId], Number(b.querySelector('span').textContent) || 0);
+    });
 
     b.addEventListener('click', function () {
       if (frozen) { toast(frozen, ''); return; }
@@ -576,11 +616,15 @@
 
       API().call('votes.toggle', { target_type: targetType, target_id: targetId })
         .then(function (res) {
-          b.disabled = false;
           var on = (res && typeof res.voted !== 'undefined') ? !!res.voted : nowOn;
           var n = (res && typeof res.count !== 'undefined') ? Number(res.count) : nowN;
           voted[targetId] = on;
           paint(on, n);
+          /* the row is written but not yet readable — hold the button until it is */
+          voteSettleUntil[targetId] = Date.now() + VOTE_SETTLE_MS;
+          if (!applyVoteSettle(b, targetId, function () { paint(on, n); })) {
+            b.disabled = false;
+          }
           /* keep the model in step so a re-render shows the same numbers */
           if (targetType === 'thread') {
             if (model.thread) model.thread.upvotes = n;
