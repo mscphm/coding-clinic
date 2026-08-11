@@ -293,9 +293,10 @@
   }
 
   /* ------------------------------------------------------------ leaderboard */
-  /* threads.list returns aggregate, all-time `contrib` only. If the backend
-     ever adds month-scoped figures (a contrib_month[] array, or *_month fields
-     on each contrib row) they are used automatically; until then the
+  /* The backend returns aggregate, all-time `contrib` (from threads.list today,
+     from meta.leaderboard once the flow split lands — see ensureLeaderboard).
+     If it ever adds month-scoped figures (a contrib_month[] array, or *_month
+     fields on each contrib row) they are used automatically; until then the
      "This month" tab shows the all-time table and says so. */
   function monthRows() {
     if (Array.isArray(data.contribMonth) && data.contribMonth.length) {
@@ -370,7 +371,7 @@
     var rows = ranked(src.rows);
 
     if (state.lbTab === 'month' && !src.exact && note) {
-      note.textContent = 'Showing all-time: threads.list returns aggregate contributions ' +
+      note.textContent = 'Showing all-time: the backend returns aggregate contributions ' +
                          'only, with no per-month breakdown.';
       show(note, true);
     }
@@ -1170,15 +1171,57 @@
     document.addEventListener('visibilitychange', onVis, false);
   }
 
+  /* ------------------------------------------------- where contrib comes from
+     threads.list carries `contrib` today. A flow change in flight moves it to
+     its own action, meta.leaderboard, and this page has to draw correctly
+     against both for as long as the two coexist — see the long note above
+     api.leaderboard(). All this page has to know is: hand the payload over, get
+     rows back, and do not assume a network call happened (in the common case
+     none does).
+
+     Absent is Array.isArray-absent, not falsy-absent: `contrib: []` is a real
+     "nobody has scored yet" from today's backend. */
+  function applyContrib(lb) {
+    data.contrib = (lb && lb.contrib) || [];
+    data.contribMonth = (lb && lb.contrib_month) || null;
+    topContrib = {};
+    ranked(data.contrib).slice(0, 3).forEach(function (c) { topContrib[c.user_id] = true; });
+  }
+
+  /* The "Top contributor" pill is drawn on the CARDS as well as in the sidebar
+     (see threadRow), so a late leaderboard has to be able to move both — but
+     only when it actually changed something. */
+  function topContribSig() {
+    return Object.keys(topContrib).sort().join(',');
+  }
+
+  var lbAsked = false;
+
+  function ensureLeaderboard(list) {
+    if (Array.isArray(list && list.contrib)) { applyContrib(list); return; }
+    /* Once per page: api.leaderboard() has its own per-session cache and
+       single-flight, but a board refresh landing every minute must not queue a
+       fresh render callback each time. */
+    if (lbAsked) return;
+    var api = API();
+    if (typeof api.leaderboard !== 'function') { applyContrib(null); return; }
+    lbAsked = true;
+    /* Never rejects, by contract. Worst case it resolves with empty rows and
+       renderLeaderboard() draws its own "no contributions yet" line. */
+    api.leaderboard(list).then(function (lb) {
+      var before = topContribSig();
+      applyContrib(lb);
+      if (!loaded) return;                  /* first paint will draw it anyway */
+      renderLeaderboard();
+      if (topContribSig() !== before) renderList();
+    });
+  }
+
   function applyThreadsPayload(list) {
     list = list || {};
     data.threads = (list.threads || []).filter(function (t) { return t && !t.deleted; });
     data.users = list.users || [];
-    data.contrib = list.contrib || [];
-    data.contribMonth = list.contrib_month || null;
-
-    topContrib = {};
-    ranked(data.contrib).slice(0, 3).forEach(function (c) { topContrib[c.user_id] = true; });
+    ensureLeaderboard(list);
   }
 
   function applyBootstrap(b) {

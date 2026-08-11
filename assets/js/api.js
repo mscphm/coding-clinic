@@ -11,10 +11,16 @@
  *   callResult(action, data)  -> Promise<{ok, data, err}>  never rejects at all (v3)
  *   isUnknownAction(err)      -> bool            "this backend is older than this UI"
  *   bootstrap()               -> Promise<boot>   cached-first config + user
- *   threadsList()             -> Promise<list>  cached-first threads.list (v3.1);
+ *   threadsList([opts])       -> Promise<list>  cached-first threads.list (v3.1);
  *                                               fires 'clinic:threads' when the
- *                                               background refresh lands
+ *                                               background refresh lands.
+ *                                               opts.force revalidates even
+ *                                               inside the floor (see below)
  *   refreshThreads()          -> Promise<list>  force the network, then cache
+ *   leaderboard(list)         -> Promise<{contrib, contrib_month}>
+ *                                               contrib off the threads.list
+ *                                               payload when it carries it, else
+ *                                               meta.leaderboard, cached (v3.3)
  *   addPendingThread(thread)                    show a just-created thread on the
  *                                               board while Excel catches up
  *   pendingThreads()          -> [thread]       the ones still not landed
@@ -66,6 +72,13 @@
  *   clinic_pending_threads JSON {uid, items:[{at, thread}]} of threads this
  *                          browser created that threads.list has not caught up
  *                          on yet — see the note above addPendingThread()
+ *
+ * sessionStorage keys CLEARED (not written) by this file, in clearSession():
+ *   clinic_leaderboard     written here, by leaderboard() — {uid, at, data}
+ *   clinic_thread_v1       written by pages/thread.js, its threads.get cache
+ * They are session-scoped rather than localStorage because both are short-lived
+ * view caches, but "signed out" still has to mean the next person on a shared
+ * lab machine sees nothing of the last one — so they go with the token.
  */
 (function (window, document) {
   'use strict';
@@ -80,6 +93,11 @@
   var K_BOOT = 'clinic_bootstrap';
   var K_THREADS = 'clinic_threads';
   var K_PENDING = 'clinic_pending_threads';
+  var SK_LEADERBOARD = 'clinic_leaderboard';
+  /* Owned and written by pages/thread.js (its threads.get cache); named here
+     only so clearSession() can drop it with everything else. Keep the two
+     literals in step — thread.js has the matching comment. */
+  var SK_THREAD_VIEW = 'clinic_thread_v1';
 
   /* — is an em dash; escaped so user-visible strings survive any charset. */
   var MSG_NETWORK = "Can't reach the server \u2014 check your connection and try again.";
@@ -97,6 +115,25 @@
   }
   function lsDel(key) {
     try { window.localStorage.removeItem(key); } catch (e) { /* ignore */ }
+  }
+
+  /* sessionStorage throws in the same privacy modes localStorage does, and is
+     absent entirely in a few embedded webviews. Every failure degrades to "no
+     cache", i.e. to one ordinary network read. */
+  function ssReadJSON(key) {
+    try {
+      var raw = window.sessionStorage.getItem(key);
+      if (!raw) return null;
+      var v = JSON.parse(raw);
+      return (v && typeof v === 'object') ? v : null;
+    } catch (e) { return null; }
+  }
+  function ssWriteJSON(key, value) {
+    try { window.sessionStorage.setItem(key, JSON.stringify(value)); }
+    catch (e) { /* quota or private mode */ }
+  }
+  function ssDel(key) {
+    try { window.sessionStorage.removeItem(key); } catch (e) { /* ignore */ }
   }
   function readJSON(key) {
     var raw = lsGet(key);
@@ -221,6 +258,11 @@
        the board that is not on the server yet, so nobody else can ever be shown
        it by accident — but it is also the one row whose author is unambiguous. */
     lsDel(K_PENDING);
+    /* The two session-scoped view caches. The leaderboard is a list of names
+       and scores and the thread cache holds whole posts, so both are exactly
+       the kind of thing "sign out" has to mean the end of. */
+    ssDel(SK_LEADERBOARD);
+    ssDel(SK_THREAD_VIEW);
   }
 
   function isInstructor() {
@@ -788,6 +830,20 @@
     return withPending(data);
   }
 
+  /* Age of the STORED payload in ms, Infinity when there is nothing usable.
+     Deliberately not folded into cachedThreads(): that one returns the merged
+     view a caller renders, and the merge would make "how old is the server's
+     answer" ambiguous the moment a pending row is in it. */
+  function cachedThreadsAgeMs() {
+    var blob = readJSON(K_THREADS);
+    if (!blob || typeof blob !== 'object' || !blob.data) return Infinity;
+    if (String(blob.uid || '') !== currentUid()) return Infinity;
+    var at = Number(blob.at) || 0;
+    if (!at) return Infinity;
+    var age = Date.now() - at;
+    return age < 0 ? Infinity : age;      /* clock moved backwards; do not trust it */
+  }
+
   /* ------------------------------------------- just-posted threads (v3.2) ---
 
      THE COMPLAINT THIS EXISTS TO ANSWER, IN THE STUDENT'S WORDS: "I pressed
@@ -933,19 +989,158 @@
     return call('threads.list', {}).then(storeThreads);
   }
 
+  /* ------------------------------------------------- the revalidate floor ---
+     v3.1 refreshed on EVERY threadsList() call, whatever the cache's age. That
+     was right when index.html was the only caller and called it once a visit.
+     It is wrong now: thread.js asks for the same board for its contributor
+     badge and its duplicate picker, and a reader going board -> thread -> back
+     -> thread was spending a 10-21 s flow run each time to re-fetch a payload
+     that had not had time to change. On a shared connector with a daily
+     allocation (R2/R22) that is the most expensive habit on the site.
+
+     So a stored board younger than this is simply believed. The 12 h max-age
+     is untouched — this is a floor on how OFTEN we revalidate, not a change to
+     how long a payload stays usable.
+
+     TWO EXCEPTIONS, both load-bearing:
+
+     1. A NON-EMPTY PENDING STORE. A pending row is retired by exactly one
+        thing — threads.list returning the id (see the note above
+        pendingThreadById) — so while one is outstanding, revalidation IS the
+        feature and must never be skipped. index.js's 30/45/60 s re-checks go
+        through refreshThreads() and so bypass this function entirely, but a
+        page LOAD inside that window comes through here, and skipping it would
+        leave a "Posting" badge on a row that landed a minute ago.
+     2. opts.force, for a caller that has just changed the board and knows it. */
+  var REVALIDATE_MIN_AGE_MS = 75000;
+
+  function hasPendingThreads() {
+    return pendingRead().length > 0;
+  }
+
+  function shouldRevalidateThreads(opts) {
+    if (opts && opts.force) return true;
+    if (hasPendingThreads()) return true;
+    return cachedThreadsAgeMs() >= REVALIDATE_MIN_AGE_MS;
+  }
+
   /* Pages call this instead of call('threads.list', {}).
-     Cache hit  -> resolves IMMEDIATELY with the cached board and refreshes behind
-                   you; 'clinic:threads' fires when the fresh payload lands.
+     Cache hit  -> resolves IMMEDIATELY with the cached board, and refreshes
+                   behind you UNLESS the stored payload is younger than the
+                   revalidate floor; 'clinic:threads' fires when a refresh lands.
      Cache miss -> behaves exactly like the old direct call, event included. */
-  function threadsList() {
+  function threadsList(opts) {
     var cached = cachedThreads();
     if (cached) {
-      if (getToken()) {
+      if (getToken() && shouldRevalidateThreads(opts)) {
         refreshThreads()['catch'](function () { /* silent; stale beats blank */ });
       }
       return Promise.resolve(cached);
     }
     return refreshThreads();
+  }
+
+  /* ------------------------------------------------- the leaderboard (v3.3) --
+
+     WHAT IS CHANGING, AND WHY THIS HELPER EXISTS BEFORE IT DOES.
+
+     threads.list today returns `contrib` (and sometimes `contrib_month`)
+     alongside the board, which is why it costs a ~44-action Query/Select
+     /Compose chain on top of its three unfiltered Excel reads. A flow change
+     being built in parallel splits that derivation OUT into its own read-only
+     action, meta.leaderboard, returning {contrib, contrib_month} with item
+     shapes identical to today's.
+
+     The two backends therefore differ by the PRESENCE of a key, and this file
+     is deployed to GitHub Pages independently of any flow import (contract
+     §12), so both shapes are live at once for as long as the wave takes.
+
+     THE RULE, AND THE ONE THING IT MUST NOT DO:
+       contrib present  -> use it. NO extra request. Whatever the deployed
+                           backend costs today, it must not cost one call more
+                           because this helper exists.
+       contrib absent   -> meta.leaderboard, once, cached per user for
+                           LEADERBOARD_TTL_MS in sessionStorage.
+
+     Note the test is Array.isArray, not truthiness: `contrib: []` is a real
+     answer ("nobody has scored yet") from a backend that still sends the key,
+     and treating it as absent would spend a flow run to be told the same thing.
+
+     NEVER REJECTS. The leaderboard is decoration on every page that draws it —
+     a sidebar panel and a badge. A failure resolves with the last cached copy
+     if there is one, and with empty rows if there is not, so the caller's only
+     job is to render what it gets. Unknown-action goes through callSafe, so a
+     backend that predates meta.leaderboard costs exactly one probe per session
+     rather than a red toast. */
+
+  var LEADERBOARD_TTL_MS = 10 * 60 * 1000;
+  var leaderboardInFlight = null;
+
+  function emptyLeaderboard() { return { contrib: [], contrib_month: null }; }
+
+  function isArr(v) {
+    return Object.prototype.toString.call(v) === '[object Array]';
+  }
+
+  /* The shape both branches resolve with, normalised so callers never have to
+     ask which backend answered. */
+  function shapeLeaderboard(src) {
+    if (!src || !isArr(src.contrib)) return null;
+    return {
+      contrib: src.contrib,
+      contrib_month: isArr(src.contrib_month) ? src.contrib_month : null
+    };
+  }
+
+  /* maxAgeMs Infinity = "any age", which is the failure path: yesterday's
+     ranking is a better answer than an empty panel, and it is never presented
+     as anything other than what the caller already draws. */
+  function cachedLeaderboard(maxAgeMs) {
+    var blob = ssReadJSON(SK_LEADERBOARD);
+    if (!blob || typeof blob !== 'object') return null;
+    if (String(blob.uid || '') !== currentUid()) { ssDel(SK_LEADERBOARD); return null; }
+    var at = Number(blob.at) || 0;
+    if (!at) return null;
+    if (maxAgeMs !== Infinity && (Date.now() - at) > maxAgeMs) return null;
+    return shapeLeaderboard(blob.data);
+  }
+
+  function storeLeaderboard(data) {
+    var shaped = shapeLeaderboard(data);
+    if (!shaped) return null;
+    ssWriteJSON(SK_LEADERBOARD, { uid: currentUid(), at: Date.now(), data: shaped });
+    return shaped;
+  }
+
+  function leaderboard(list) {
+    /* 1. The backend deployed today. Free. */
+    var inline = shapeLeaderboard(list);
+    if (inline) return Promise.resolve(inline);
+
+    /* 2. This session already asked. */
+    var fresh = cachedLeaderboard(LEADERBOARD_TTL_MS);
+    if (fresh) return Promise.resolve(fresh);
+
+    /* 3. One in flight is enough — the sidebar and a badge can both want this
+          on the same paint, exactly as they can want the board. */
+    if (leaderboardInFlight) return leaderboardInFlight;
+
+    if (!getToken()) return Promise.resolve(cachedLeaderboard(Infinity) || emptyLeaderboard());
+
+    var settle = function (out) {
+      leaderboardInFlight = null;
+      return out;
+    };
+    leaderboardInFlight = callSafe('meta.leaderboard', {}, null).then(function (d) {
+      /* null = this backend has never heard of the action. Cache nothing: the
+         next threads.list may well carry `contrib` inline, and a cached empty
+         would then hide a leaderboard we can actually draw. */
+      return settle(storeLeaderboard(d) || cachedLeaderboard(Infinity) || emptyLeaderboard());
+    }, function () {
+      /* network, throttle, anything else. Decoration never surfaces an error. */
+      return settle(cachedLeaderboard(Infinity) || emptyLeaderboard());
+    });
+    return leaderboardInFlight;
   }
 
   /* ------------------------------------------------------------ entry gates */
@@ -978,6 +1173,7 @@
     threadsList: threadsList,
     refreshThreads: refreshThreads,
     cachedThreads: cachedThreads,
+    leaderboard: leaderboard,
     addPendingThread: addPendingThread,
     pendingThreads: pendingThreads,
     pendingThreadById: pendingThreadById,

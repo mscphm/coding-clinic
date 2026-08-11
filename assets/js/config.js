@@ -104,3 +104,37 @@ window.CLINIC_CONFIG = {
  * ------------------------------------------------------------------------- */
 window.Clinic = window.Clinic || {};
 window.Clinic.config = window.CLINIC_CONFIG;
+
+/* ---------------------------------------------------------------------------
+ * DEMO DATA IS LOADED HERE, AND ONLY IN DEMO MODE
+ *
+ * assets/js/mock-data.js is a complete in-browser implementation of the API —
+ * eight discussions, a leaderboard, clinic slots, an admin dashboard — and it
+ * is 152 KB, the second largest file on the site. Every page used to carry a
+ * static <script> tag for it, so with MOCK:false every student downloaded and
+ * parsed all 152 KB on every page load to run precisely none of it. On the warm
+ * -cache path, where the board paints from localStorage and no request is made
+ * at all, that dead weight was most of the remaining wait.
+ *
+ * WHY document.write, WHICH IS OTHERWISE A BANNED CONSTRUCT.
+ * The load ORDER matters: api.js's mockCall() expects window.Clinic.mock to
+ * exist, so mock-data.js has to run before any page boots. document.write is
+ * the one mechanism that inserts a script into the parser's own stream at this
+ * exact position, which means the written tag keeps its place in the deferred
+ * queue (after this file, before api.js) and DOMContentLoaded still waits for
+ * it. An injected element with .async=false does NOT block DOMContentLoaded, so
+ * page boot could — and in testing did — run before the mock existed.
+ *
+ * This is why config.js is the one script on the site loaded WITHOUT `defer`:
+ * document.write only works while the parser is still open. It is 6 KB, it sits
+ * at the end of <body> below all the content, and it defines nothing anyone
+ * needs before paint, so it costs nothing to have it run early.
+ *
+ * The written tag carries `defer` itself, so nothing is parser-blocking.
+ * ------------------------------------------------------------------------- */
+(function () {
+  if (window.CLINIC_CONFIG.MOCK !== true) return;
+  /* Path is relative to the PAGE, and every page is a sibling at the site
+     root, so this is the same 'assets/js/...' every other tag on the page uses. */
+  document.write('<script defer src="assets/js/mock-data.js"><\/script>');
+})();

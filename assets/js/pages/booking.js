@@ -198,7 +198,13 @@
   function load() {
     return Promise.all([
       api.call('slots.list', {}),
-      api.call('threads.list', {})['catch'](function (e) { return { __error: e }; }),
+      /* Cached-first board read (v3.3): the same payload index.html just fetched,
+         so a warm visit costs zero extra flow runs and the floor in api.js stops
+         the board→booking→board walk re-fetching it. Rows still inside the write
+         lag carry _pending and are dropped below — a slots.book against a thread
+         the server cannot read yet fails with 'not_found', so they are not
+         offered (same rule as thread.js's duplicate picker). */
+      api.threadsList()['catch'](function (e) { return { __error: e }; }),
       loadConfig()
     ]).then(function (res) {
       var slotsRes = res[0] || {};
@@ -208,7 +214,9 @@
 
       applySlotsResult(slotsRes);
 
-      state.threads = threadsRes.__error ? [] : (threadsRes.threads || []);
+      state.threads = threadsRes.__error ? [] : (threadsRes.threads || []).filter(function (t) {
+        return t && t._pending !== true;
+      });
       var myId = state.me && state.me.user_id;
       state.myThreads = state.threads.filter(function (t) {
         if (!t) return false;

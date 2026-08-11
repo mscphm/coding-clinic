@@ -65,8 +65,12 @@
   <script defer src="assets/vendor/marked.min.js"></script>
   <script defer src="assets/vendor/purify.min.js"></script>
   <script defer src="assets/vendor/highlight.min.js"></script>
-  <script defer src="assets/js/config.js"></script>
-  <script defer src="assets/js/mock-data.js"></script>
+  <!-- config.js is the ONE script here without `defer`, and mock-data.js is no
+       longer listed at all. config.js document.write()s the demo-data script
+       when MOCK is true, so a live visitor never downloads its 152 KB -- and
+       document.write needs a parser that is still open, hence no `defer`.
+       See the note at the bottom of assets/js/config.js. -->
+  <script src="assets/js/config.js"></script>
   <script defer src="assets/js/api.js"></script>
   <script defer src="assets/js/markdown.js"></script>
   <script defer src="assets/js/ui.js"></script>

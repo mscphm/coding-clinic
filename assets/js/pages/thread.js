@@ -145,6 +145,98 @@
     if (box && String(box.thread_id || '') === String(id)) ssRemove(STASH_NEW_THREAD);
   }
 
+  /* ==========================================================================
+   * THE threads.get VIEW CACHE
+   * ---------------------------------------------------------------------------
+   * threads.get is 6 Excel reads and 7-21 s, and it is paid IN FULL every time
+   * this page opens — including opening the same thread twice in a minute,
+   * which is what reading a board actually looks like (open, read, back, open
+   * the next one, come back to the first). Nothing here makes the call faster.
+   * What it does is stop the page being BLANK while it runs when this browser
+   * already has a perfectly good copy of the answer.
+   *
+   * Same stale-while-revalidate deal as api.js's board cache, with three
+   * differences that all follow from what a thread is:
+   *
+   *   SHORT. THREAD_CACHE_TTL_MS is three minutes, not twelve hours. A board
+   *   that is an hour stale is yesterday's news; a THREAD that is an hour stale
+   *   may be missing the answer the reader came back for. Past the TTL the
+   *   entry is dropped and the spinner is the honest answer.
+   *
+   *   RAW. The SERVER payload is stored, never the merged model — the same
+   *   discipline as api.js ("the cache stays a faithful record of what the
+   *   server said"). Pending replies are re-merged on read because absorb()
+   *   calls mergePending(), so a cached paint shows the reply you just wrote
+   *   exactly as a live paint does, and the stash stays the one owner of it.
+   *
+   *   NAMESPACED BY UID, and dropped on sign-out by api.js's clearSession()
+   *   (which knows this key by name — keep the two literals in step). A thread
+   *   payload carries my_votes and whole post bodies, so on a shared lab
+   *   machine it has to go with the token.
+   *
+   * WHAT THIS CACHE MUST NEVER DO, and the reason is the whole of api.js's
+   * "THERE IS DELIBERATELY NO dropPendingThread" note: a cached threads.get is
+   * even weaker evidence than a live one, so it retires NOTHING. It does not
+   * touch the pending board store, it does not lift the pending gate, and it
+   * never runs at all for a thread that is still pending — the stash branch in
+   * boot() is checked first and wins.
+   * ========================================================================*/
+  var STASH_THREAD_VIEW = 'clinic_thread_v1';    /* == api.js SK_THREAD_VIEW */
+  var THREAD_CACHE_TTL_MS = 3 * 60 * 1000;
+
+  function viewUid() {
+    try {
+      var api = API();
+      var u = (typeof api.getUser === 'function') ? api.getUser() : null;
+      return (u && u.user_id) ? String(u.user_id) : '';
+    } catch (e) { return ''; }
+  }
+
+  /* Prunes on every read: an expired or foreign-user entry is deleted rather
+     than merely declined, so a browser that visited forty threads yesterday is
+     not still carrying them. */
+  function viewBox() {
+    var box = ssRead(STASH_THREAD_VIEW) || {};
+    var uid = viewUid();
+    var keys = Object.keys(box);
+    var dirty = false;
+    for (var i = 0; i < keys.length; i++) {
+      var slot = box[keys[i]];
+      var ok = slot && slot.data && Number(slot.at) > 0 &&
+               (Date.now() - Number(slot.at)) < THREAD_CACHE_TTL_MS &&
+               String(slot.uid || '') === uid;
+      if (!ok) { delete box[keys[i]]; dirty = true; }
+    }
+    if (dirty) ssWrite(STASH_THREAD_VIEW, box);
+    return box;
+  }
+
+  function viewCacheGet(tid) {
+    var slot = viewBox()[String(tid)];
+    if (!slot || !slot.data || !slot.data.thread) return null;
+    return slot.data;
+  }
+
+  /* Only a payload with a thread in it is ever stored. Caching a not-found or a
+     half-shaped response would paint an empty page instantly, which is strictly
+     worse than the spinner it replaced. */
+  function viewCachePut(tid, d) {
+    if (!d || !d.thread) return;
+    var box = viewBox();
+    box[String(tid)] = { at: Date.now(), uid: viewUid(), data: d };
+    ssWrite(STASH_THREAD_VIEW, box);
+  }
+
+  /* The one case a cached thread is actively WRONG rather than merely old: the
+     server now says it is not there. Drop it so a reload does not paint it
+     again for the rest of the TTL. */
+  function viewCacheDrop(tid) {
+    var box = viewBox();
+    if (!Object.prototype.hasOwnProperty.call(box, String(tid))) return;
+    delete box[String(tid)];
+    ssWrite(STASH_THREAD_VIEW, box);
+  }
+
   /* ---------------------------------------------------------------- shims */
   function UI() { return (window.Clinic && window.Clinic.ui) || {}; }
   function API() { return (window.Clinic && window.Clinic.api) || {}; }
@@ -1265,10 +1357,14 @@
     paint();
     try { filter.focus(); } catch (e) { /* ignore */ }
 
-    /* Cold path only: the badge fetch has not landed yet (or failed). */
+    /* Cold path only: the badge fetch has not landed yet (or failed). Goes
+       through the same cache-first helper, so opening this dialog on a warm
+       board still costs nothing. */
     if (!allThreads.length) {
-      API().call('threads.list', {}).then(function (res) {
-        allThreads = (res && res.threads) || [];
+      boardPayload().then(function (res) {
+        allThreads = ((res && res.threads) || []).filter(function (t) {
+          return t && !t._pending;
+        });
         if (!done) paint();
       })['catch'](function () {
         if (done) return;
@@ -1369,7 +1465,7 @@
       API().call('threads.get', { thread_id: threadId }).then(function (d) {
         if (!d || !d.thread) return;               /* still not readable */
         var before = modelSig();
-        absorb(d);
+        absorbServer(d);
         threadPending = false;
         if (modelSig() !== before) quietRender();
       })['catch'](function () { /* quiet: the write already succeeded */ });
@@ -2079,16 +2175,57 @@
     root.appendChild(box);
   }
 
+  /* ---------------------------------------------------------- the board, cheap
+     This page wants the board for two decorations: the "Top contributor" badge
+     (SPEC §8 — threads.get carries no contrib data) and the instructor's
+     duplicate picker (D13). It used to get both by calling threads.list
+     outright, which is the single most expensive action in the system —
+     10-21 s, three unfiltered Excel reads — spent on EVERY thread view, for a
+     pill and a dialog most readers never open.
+
+     index.html has already fetched and cached that exact payload. So: read the
+     cache, and only touch the network when there is nothing there.
+
+     DELIBERATELY cachedThreads() FIRST, not threadsList() ALONE. threadsList()
+     is cached-first too, but it also revalidates in the background, and a
+     background revalidation is still a full flow run — which is precisely the
+     cost this is here to remove. A warm board must cost ZERO. When the cache is
+     genuinely empty (a direct link to a thread, a new session that has not seen
+     index.html yet) one threadsList() is worth it: it answers this page AND
+     leaves the board warm for the next click. */
+  function boardPayload() {
+    var api = API();
+    var cached = null;
+    if (typeof api.cachedThreads === 'function') {
+      try { cached = api.cachedThreads(); } catch (e) { cached = null; }
+    }
+    if (cached) return Promise.resolve(cached);
+    if (typeof api.threadsList === 'function') return api.threadsList();
+    return api.call('threads.list', {});
+  }
+
   /* SPEC §8 asks for the "Top contributor" badge in threads as well as on the
-     home page, but threads.get carries no contrib data. Fetch the aggregate
-     after the thread is on screen (never blocking it) and only re-render when
-     somebody visible actually earns a badge. */
+     home page. Draw it after the thread is on screen (never blocking it) and
+     only re-render when somebody visible actually earns a badge.
+
+     `contrib` comes off the board payload today and from meta.leaderboard once
+     the flow split lands; api.leaderboard() hides which, costs no extra request
+     in the first case, and never rejects. See the long note in api.js. */
   function loadTopContributors() {
-    API().call('threads.list', {}).then(function (res) {
+    var api = API();
+    boardPayload().then(function (res) {
       /* Kept for the duplicate picker (D13). Reusing this payload is why
-         opening that dialog normally costs no extra Excel calls at all. */
-      allThreads = (res && res.threads) || [];
-      var rows = (res && res.contrib) || [];
+         opening that dialog normally costs no extra Excel calls at all.
+         `_pending` rows are this browser's own un-landed posts: the server
+         cannot resolve them yet, so they are not valid duplicate targets. */
+      allThreads = ((res && res.threads) || []).filter(function (t) {
+        return t && !t._pending;
+      });
+      return (typeof api.leaderboard === 'function')
+        ? api.leaderboard(res)
+        : { contrib: (res && res.contrib) || [] };
+    }).then(function (lb) {
+      var rows = (lb && lb.contrib) || [];
       topContrib = {};
       rows.map(function (c) {
         return {
@@ -2106,7 +2243,10 @@
       var visible = [];
       if (model.thread && model.thread.author) visible.push(model.thread.author.user_id);
       (model.posts || []).forEach(function (p) { if (p.author) visible.push(p.author.user_id); });
-      if (visible.some(function (u) { return topContrib[u]; })) { render(); flashHash(); }
+      /* quietRender(), not render(): nobody asked for this repaint, and with the
+         board now usually answering from cache it can land while the reader is
+         already typing rather than 15 s before they start. */
+      if (visible.some(function (u) { return topContrib[u]; })) { quietRender(); flashHash(); }
     })['catch'](function () { /* badges are decoration — never block the thread */ });
   }
 
@@ -2137,6 +2277,15 @@
     voted = {};
     ((d && d.my_votes) || []).forEach(function (id) { voted[id] = true; });
     mergePending();
+  }
+
+  /* absorb() for a payload that genuinely came from threads.get, which is the
+     only kind worth caching. The stash paint calls absorb() directly and so
+     never writes the cache — a locally-composed thread is not evidence about
+     what the server holds. */
+  function absorbServer(d) {
+    viewCachePut(threadId, d);
+    absorb(d);
   }
 
   /* A cheap fingerprint of everything render() draws. Used only by the quiet
@@ -2178,7 +2327,7 @@
 
   function reload() {
     return API().call('threads.get', { thread_id: threadId }).then(function (d) {
-      absorb(d);
+      absorbServer(d);
       if (!model.thread) { notFound(); return; }
       render();
     });
@@ -2319,6 +2468,24 @@
          "Discussion not found". It is dropped below, once the row is readable. */
     }
 
+    /* THIRD PAINT SOURCE — the threads.get view cache. Strictly last: a
+       stashed or pending thread is a row the server has not admitted to, and
+       its pending gate must win over any cached copy (there cannot be one for
+       a thread this new, but the ordering is what makes that a rule rather
+       than a coincidence). Everything below is a thread the server HAS
+       returned before, within the last few minutes, to this same user. */
+    var fromCache = null;
+    if (!stashed) {
+      fromCache = viewCacheGet(threadId);
+      if (fromCache) {
+        try { me = (typeof api.getUser === 'function') ? api.getUser() : null; }
+        catch (e1) { me = null; }
+        absorb(fromCache);        /* absorb, not absorbServer: already cached */
+        render();
+        flashHash();
+      }
+    }
+
     var threadP = isNewThread
       ? loadJustCreatedThread(!stashed)
       : api.call('threads.get', { thread_id: threadId });
@@ -2337,7 +2504,11 @@
              link and the instructor moderation row are all drawn from it, and
              on a cold start it can arrive here rather than at paint time. */
           var before = modelSig() + '~me=' + meSig;
-          absorb(res[1]);
+          /* A server payload, so it is cacheable — and worth caching: this is
+             the moment the row became readable, and a refresh a few seconds
+             later should not pay for that discovery again. viewCachePut()
+             no-ops when the ladder came back empty. */
+          absorbServer(res[1]);
           if (!model.thread) {
             model.thread = stashed;                      /* keep the paint */
             /* The ladder has run its full course (up to ~50 s) and the row is
@@ -2375,7 +2546,21 @@
           return;
         }
 
-        absorb(res[1]);
+        /* Painted from the view cache already. Swap the server copy in, but —
+           exactly as the stashed branch does — only re-render when it actually
+           says something different. This lands 7-21 s after the cached paint,
+           which is easily long enough for the reader to have started typing. */
+        if (fromCache) {
+          var beforeCached = modelSig() + '~me=' + meSig;
+          absorbServer(res[1]);
+          if (!model.thread) { viewCacheDrop(threadId); notFound(); return; }
+          if (isNewThread) stripNewFlag();
+          if ((modelSig() + '~me=' + whoSig()) !== beforeCached) { quietRender(); flashHash(); }
+          loadTopContributors();
+          return;
+        }
+
+        absorbServer(res[1]);
         if (!model.thread) { notFound(); return; }
         if (isNewThread) stripNewFlag();
         render();
@@ -2398,6 +2583,17 @@
           loadTopContributors();
           return;
         }
+        /* Painted from the view cache and the refresh failed. A 'not_found' is
+           a real answer — the thread has been removed since it was cached — so
+           the cache must yield to it and is dropped below. Anything else
+           (network, throttle, a 502) is a failure to ASK, not an answer: keep
+           what is already on screen and stay quiet (§10.10), which is the same
+           call the stashed branch makes one block up. */
+        if (fromCache && model.thread && !(e && e.code === 'not_found')) {
+          loadTopContributors();
+          return;
+        }
+        if (fromCache && e && e.code === 'not_found') viewCacheDrop(threadId);
         if (e && e.code === 'not_found') {
           if (isNewThread) notFoundAfterRetries(); else notFound();
           return;
