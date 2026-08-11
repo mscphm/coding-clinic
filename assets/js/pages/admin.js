@@ -253,6 +253,16 @@
   }
 
   function errMsg(e, fallback) { return (e && (e.message || e.error)) || fallback; }
+  /* Spinner-in-the-button. Falls back to the old label swap against a ui.js
+     that predates ui.busy(), so this page never depends on the newer file. */
+  function busyBtn(btn, label) {
+    if (!btn) return function () {};
+    var ui = (window.Clinic && window.Clinic.ui) || {};
+    if (typeof ui.busy === 'function') { try { return ui.busy(btn, label); } catch (e) {} }
+    var was = btn.textContent;
+    btn.disabled = true; btn.textContent = label;
+    return function () { btn.disabled = false; btn.textContent = was; };
+  }
 
   function truthy(v) {
     if (v === true) return true;
@@ -515,10 +525,17 @@
   /* ------------------------------------------------------------ row menu */
 
   var openMenuEl = null;
+  var openMenuBtn = null;       /* the kebab that opened it, for aria-expanded */
 
   function closeMenu() {
     if (openMenuEl && openMenuEl.parentNode) openMenuEl.parentNode.removeChild(openMenuEl);
     openMenuEl = null;
+    /* The button has to stop claiming it is open, both for a screen reader and
+       for .btn-kebab[aria-expanded="true"] in main.css §6 — which is what keeps
+       the button lit while its menu is on screen. The menu is appended to
+       <body> (it has to escape the table's scroll box), so there is no DOM
+       relationship to key the styling off; this attribute IS the link. */
+    if (openMenuBtn) { openMenuBtn.setAttribute('aria-expanded', 'false'); openMenuBtn = null; }
     document.removeEventListener('click', closeMenu, true);
     document.removeEventListener('keydown', onEsc, true);
     window.removeEventListener('resize', closeMenu);
@@ -558,6 +575,8 @@
     menu.style.left = left + 'px';
     menu.style.top = top + 'px';
     openMenuEl = menu;
+    openMenuBtn = anchor;
+    anchor.setAttribute('aria-expanded', 'true');
 
     window.setTimeout(function () {
       document.addEventListener('click', closeMenu, true);
@@ -567,11 +586,22 @@
     }, 0);
   }
 
+  /* .btn-kebab, not .btn-invisible. Reported by the instructor: .btn-invisible
+     has a transparent background AND a transparent border, so every row action
+     on this dashboard — pin, edit labels, set category, delete — was hidden
+     behind three faint dots with no outline, at the far right of a wide table,
+     with nothing to say they were a control at all until the pointer happened
+     to land on them. On a touch screen there is no hover, so there was no
+     moment at which they ever appeared.
+     .btn-kebab (main.css §6) has a resting outline and a 44px touch target; the
+     title text gives it a tooltip on the way in. */
   function kebabButton(itemsFn) {
-    var b = el('button', 'btn-invisible btn-sm');
+    var b = el('button', 'btn btn-sm btn-kebab');
     b.type = 'button';
+    b.title = 'Actions for this row';
     b.setAttribute('aria-label', 'Row actions');
     b.setAttribute('aria-haspopup', 'true');
+    b.setAttribute('aria-expanded', 'false');
     b.appendChild(iconEl('kebab'));
     if (!b.childNodes.length) b.textContent = '⋯';
     b.addEventListener('click', function (ev) {
@@ -598,12 +628,13 @@
     var refreshBtn = el('button', 'btn btn-sm', 'Refresh');
     refreshBtn.type = 'button';
     refreshBtn.addEventListener('click', function () {
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = 'Refreshing…';
+      /* The dashboard is the slowest page on the site — several unfiltered
+         GetItems behind one click — so this is the button most in need of
+         something that moves while it waits. */
+      var restore = busyBtn(refreshBtn, 'Refreshing…');
       loadData().then(function () { renderShell(); toast('Dashboard refreshed.', 'success'); })
       ['catch'](function (e) {
-        refreshBtn.disabled = false;
-        refreshBtn.textContent = 'Refresh';
+        restore();
         toast(errMsg(e, 'Refresh failed.'), 'error');
       });
     });
@@ -1957,15 +1988,13 @@
 
       var keys = Object.keys(entries);
       if (!keys.length) { toast('Nothing changed.', 'success'); return; }
-      save.disabled = true;
-      save.textContent = 'Saving…';
+      var restoreSave = busyBtn(save, 'Saving…');
       api.call('admin.config.set', { entries: entries }).then(function () {
         keys.forEach(function (k) { state.config[k] = entries[k]; });
         toast('Saved ' + keys.length + ' setting' + (keys.length === 1 ? '' : 's') + '.', 'success');
         renderPanel();
       })['catch'](function (e) {
-        save.disabled = false;
-        save.textContent = 'Save settings';
+        restoreSave();
         toast(errMsg(e, 'Settings did not save.'), 'error');
       });
     });
@@ -2011,8 +2040,7 @@
           'and you can undo this from the same button.')
         .then(function (yes) {
           if (!yes) return;
-          btn.disabled = true;
-          btn.textContent = 'Saving…';
+          var restoreArch = busyBtn(btn, 'Saving…');
           api.call('admin.config.set', { entries: { archive_mode: next } }).then(function () {
             state.config.archive_mode = next;
             toast(on ? 'The board is open again.' : 'The board is archived and read-only.', 'success');
@@ -2021,8 +2049,7 @@
                completely normal while every student sees a read-only board. */
             renderShell();
           })['catch'](function (e) {
-            btn.disabled = false;
-            btn.textContent = on ? 'Reopen the board' : 'Archive the board for the semester';
+            restoreArch();
             toast(errMsg(e, 'That did not save — the board is unchanged.'), 'error');
           });
         });

@@ -481,6 +481,20 @@
 
     ensureNote(tray, zone);
 
+    /* A visible button that answers every click with the same apology is worse
+       than no button at all, so the caller's control is hidden outright once we
+       KNOW attachments are off (§10.10 — feature marked off, chat flow not
+       wired, archive mode, attachments_enabled FALSE). 'unknown' leaves it
+       showing on purpose: that state means "we have not asked yet", and the
+       first click is the one-shot probe that answers it. */
+    function syncButtonVisible() {
+      if (!opts.button) return;
+      var off = available() === 'no';
+      opts.button.hidden = off;
+      if (off) opts.button.setAttribute('aria-hidden', 'true');
+      else opts.button.removeAttribute('aria-hidden');
+    }
+
     var picker = null;
     if (opts.button) {
       picker = document.createElement('input');
@@ -644,6 +658,22 @@
           setProgress(rec, 1);
           if (rec.track && rec.track.parentNode) rec.track.parentNode.removeChild(rec.track);
         }
+        /* We downscaled and re-encoded these bytes ourselves a moment ago, so
+           markdown.js never has to spend an attach.get (10-21 s, plus the
+           not-found ladder against a OneDrive row that is not readable yet) to
+           display an image this tab is already holding. This is what makes a
+           pasted screenshot show up instantly in a live preview and, right
+           after posting, on the thread. Best-effort: if it fails, the image
+           still resolves the slow way. */
+        try {
+          var mdMod = window.Clinic && window.Clinic.md;
+          if (mdMod && typeof mdMod.primeAttachment === 'function' &&
+              result.attachment_id && result.preview) {
+            mdMod.primeAttachment(result.attachment_id,
+              typeOf(result.preview), b64Of(result.preview));
+          }
+        } catch (e) { /* never let a cache hint break an upload */ }
+
         if (!replaceInTextarea(ta, token, md)) {
           /* The student deleted the placeholder while we were waiting. Respect
              that: do not shove the image back in, and drop the tile. */
@@ -673,12 +703,14 @@
       /* §10.10: one probe, then inert for the session. Never console.error. */
       if (api.isUnknownAction && api.isUnknownAction(err)) {
         markOff();
+        syncButtonVisible();
         if (rec) dropItem(rec);
         toastInert();
         return;
       }
       if (code === 'forbidden') {
         markOff();
+        syncButtonVisible();
         if (rec) dropItem(rec);
         toast(message, 'info');
         return;
@@ -768,7 +800,7 @@
 
     function onButton(ev) {
       ev.preventDefault();
-      if (available() === 'no') { toastInert(); return; }
+      if (available() === 'no') { syncButtonVisible(); toastInert(); return; }
       if (picker) picker.click();
     }
 
@@ -788,9 +820,17 @@
     if (opts.button) opts.button.addEventListener('click', onButton, false);
     if (picker) picker.addEventListener('change', onPicked, false);
 
+    syncButtonVisible();
+    /* attachments_enabled arrives with the bootstrap, which on a cold cache
+       lands AFTER the composer is built. Without this, the button on a
+       chat-less deployment would be visible for one paint and then stay
+       visible until the next navigation. */
+    window.addEventListener('clinic:bootstrap', syncButtonVisible);
+
     return function detach() {
       detached = true;
       queue.length = 0;
+      window.removeEventListener('clinic:bootstrap', syncButtonVisible);
       ta.removeEventListener('paste', onPaste, false);
       if (zone) {
         zone.removeEventListener('dragover', onDragOver, false);

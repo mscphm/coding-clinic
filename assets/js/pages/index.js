@@ -51,6 +51,19 @@
   }
   function relTime(iso) { try { return UI().relTime(iso) || ''; } catch (e) { return ''; } }
   function toast(msg, type) { try { UI().toast(msg, type); } catch (e) {} }
+  function spinner() {
+    try { return UI().spinner(); } catch (e) { return el('span', 'spinner'); }
+  }
+  /* Grey rows shaped like the cards that are coming. Falls back to the plain
+     spinner against a ui.js that predates ui.skeleton(). */
+  function skeleton(kind, n) {
+    try {
+      if (typeof UI().skeleton === 'function') return UI().skeleton(kind, n);
+    } catch (e) { /* fall through */ }
+    var box = el('div', 'empty-state');
+    box.appendChild(spinner());
+    return box;
+  }
   function errText(e) {
     return (e && (e.message || e.error)) || 'Something went wrong. Please try again.';
   }
@@ -663,13 +676,57 @@
     return s;
   }
 
+  /* Anything inside a card that already does something on click. The whole-card
+     click target below must not steal from any of them, or filtering by a
+     category pill would navigate into the thread instead. */
+  function isInteractive(node, stopAt) {
+    var n = node;
+    while (n && n !== stopAt) {
+      if (n.nodeType === 1) {
+        var tag = String(n.tagName || '').toLowerCase();
+        if (tag === 'a' || tag === 'button' || tag === 'input' ||
+            tag === 'select' || tag === 'textarea' || tag === 'label') return true;
+        if (n.getAttribute && n.getAttribute('role') === 'button') return true;
+      }
+      n = n.parentNode;
+    }
+    return false;
+  }
+
   function threadRow(t) {
     var answered = isAnswered(t);
+    var pending = !!t._pending;
+    var href = 'thread.html?id=' + encodeURIComponent(t.thread_id) +
+      (pending ? '&new=1' : '');
     /* .is-archived is a whole-board state, not a per-thread one: when
        archive_mode is on nothing here can be replied to, so every row is
        quietened at once (§9.3). */
-    var row = el('div', 'thread-row' + (t.pinned ? ' is-pinned' : '') +
-      (archived() ? ' is-archived' : ''));
+    var row = el('div', 'thread-row is-clickable' + (t.pinned ? ' is-pinned' : '') +
+      (archived() ? ' is-archived' : '') + (pending ? ' is-pending' : ''));
+
+    /* THE WHOLE CARD IS THE TARGET, not just the twelve words of the title.
+       Reported as "I clicked the discussion and nothing happened" — which is
+       what a 340px-wide card with a 190px hit area feels like, especially on a
+       phone. The <a> stays exactly where it was and does all the real work:
+       it is what gives keyboard focus, middle-click, ctrl-click, "open in new
+       tab", the status-bar URL preview and the screen-reader link. This handler
+       only forwards a click that landed on the padding.
+
+       Three things it must not break, hence the three guards:
+         * a click on any control INSIDE the card (category pill, label pill,
+           the duplicate link) belongs to that control;
+         * a real click on the title anchor must not be handled twice;
+         * selecting the title text with the mouse must not navigate on
+           mouse-up. */
+    row.addEventListener('click', function (ev) {
+      if (ev.defaultPrevented) return;
+      if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      if (isInteractive(ev.target, row)) return;
+      var sel = null;
+      try { sel = window.getSelection(); } catch (e) { sel = null; }
+      if (sel && String(sel).length > 0) return;
+      location.href = href;
+    });
 
     var ico = el('span', 'thread-row-icon' + (answered ? ' answered' : ''));
     ico.title = answered ? 'Answered' : 'Open discussion';
@@ -679,10 +736,25 @@
     var main = el('div', 'thread-row-main');
 
     var title = el('a', 'thread-row-title', t.title || '(untitled)');
-    title.href = 'thread.html?id=' + encodeURIComponent(t.thread_id);
+    title.href = href;
     main.appendChild(title);
 
     var badges = el('span', 'thread-row-badges');
+
+    /* The just-posted row (api.js's pending store). It is FIRST because it is
+       the only badge that answers a question the reader is actively asking —
+       "did that go through?" — and because the honest answer has two halves
+       that have to arrive together: yes it posted, and no the board has not
+       caught up yet. A spinner says the second half without a sentence. */
+    if (pending) {
+      var pb = el('span', 'badge-pending');
+      pb.title = 'Posted. The board is a shared spreadsheet and takes up to a ' +
+        'minute to catch up — the discussion itself is open now.';
+      pb.appendChild(spinner());
+      pb.appendChild(el('span', null, 'Posting'));
+      badges.appendChild(pb);
+    }
+
     if (t.pinned) badges.appendChild(el('span', 'badge-pinned', 'Pinned'));
     if (answered) badges.appendChild(el('span', 'badge-answered', 'Answered'));
 
@@ -787,8 +859,9 @@
     });
 
     var by = el('span');
-    by.appendChild(document.createTextNode(
-      'opened ' + relTime(t.created_at) + ' by ' + nameOf(t.author)));
+    by.appendChild(document.createTextNode(pending
+      ? 'just now by ' + nameOf(t.author)
+      : 'opened ' + relTime(t.created_at) + ' by ' + nameOf(t.author)));
     meta.appendChild(by);
     if (t.author && topContrib[t.author.user_id]) {
       var badge = el('span', 'badge-top-contrib');
@@ -875,8 +948,18 @@
     clear(list);
 
     if (!loaded) {
-      var wait = el('div', 'empty-state');
-      wait.appendChild(el('span', 'spinner'));
+      /* threads.list is three unfiltered Excel GetItems plus a ~44-action
+         derive chain — 10-21 s on a cold cache, every time, and none of that is
+         fixable from here. A lone spinner in the middle of an empty page for
+         twenty seconds reads as a page that has failed. Rows shaped like the
+         cards that are coming read as a page that is working. */
+      var wait = el('div', 'thread-list-loading');
+      var say = el('p', 'loading-block-msg');
+      say.setAttribute('role', 'status');
+      say.appendChild(spinner());
+      say.appendChild(el('span', null, 'Loading discussions…'));
+      wait.appendChild(say);
+      wait.appendChild(skeleton('thread', 4));
       list.appendChild(wait);
       return;
     }
@@ -998,10 +1081,19 @@
     var parts = [];
     for (var i = 0; i < rows.length; i++) {
       var t = rows[i] || {};
+      /* `_pending` is in the fingerprint and MUST stay in it. A pending row
+         and the real row that replaces it are identical in every other field
+         listed here — same id, same title, same zero reply count — so without
+         it the payload that finally carries the thread hashes the same as the
+         one before it, the guard below decides "nothing has changed", and the
+         card keeps its dashed border and its "Posting" spinner for the rest of
+         the visit, on a thread that has been on the board for a minute.
+         Caught in the browser against a simulated 60 s threads.list lag. */
       parts.push([t.thread_id, t.title, t.language, t.category, t.status,
                   t.accepted, t.pinned, t.locked, t.duplicate_of,
                   t.instructor_replied, t.has_endorsed,
                   t.reply_count, t.upvotes, t.deleted,
+                  t._pending ? 'p' : '',
                   labelsOf(t).join(',')].join(FS));
     }
     parts.sort();
@@ -1016,6 +1108,67 @@
   }
 
   var lastSig = null;
+
+  /* ---------------------------------------------- waiting out the write lag
+     A row that api.js is still holding for us (see addPendingThread) is one the
+     server has not admitted to yet. threads.list is fetched ONCE per visit, so
+     without this the "Posting" badge would sit there until the next navigation
+     even though the row landed twenty seconds ago.
+
+     STRICTLY BOUNDED, because R22's daily flow allocation is real: at most
+     PENDING_RECHECKS extra threads.list runs, only while a pending row is
+     actually on this board, only while the tab is visible, and it stops the
+     moment there is nothing left to wait for. It cannot run at all for someone
+     who has not just posted something. */
+  var PENDING_RECHECK_MS = [30000, 45000, 60000];
+  var pendingChecks = 0;
+  var pendingTimer = null;
+  var hadPending = false;
+
+  function pendingCount() {
+    var api = API();
+    if (typeof api.pendingThreads !== 'function') return 0;
+    try { return api.pendingThreads().length; } catch (e) { return 0; }
+  }
+
+  function schedulePendingRecheck() {
+    if (pendingTimer) return;
+    if (pendingChecks >= PENDING_RECHECK_MS.length) return;
+    if (!pendingCount()) { pendingChecks = 0; return; }
+    var wait = PENDING_RECHECK_MS[pendingChecks];
+    pendingTimer = window.setTimeout(function () {
+      pendingTimer = null;
+      if (!pendingCount()) { pendingChecks = 0; return; }
+      /* A backgrounded tab is not looking at the board. Spending a 10-21 s flow
+         run on it buys nothing, so wait for it to come back rather than
+         re-arming a timer that would fire into a hidden tab forever. */
+      if (document.hidden) { whenVisible(schedulePendingRecheck); return; }
+      pendingChecks++;
+      var api = API();
+      if (typeof api.refreshThreads !== 'function') return;
+      /* Success repaints through the 'clinic:threads' listener below, which
+         re-arms this itself; the catch is only so a failed refresh still gets
+         the remaining attempts. */
+      api.refreshThreads()['catch'](function () {
+        schedulePendingRecheck();
+      });
+    }, wait);
+  }
+
+  var visibleWaiters = null;
+  function whenVisible(fn) {
+    if (!document.hidden) { fn(); return; }
+    if (visibleWaiters) { visibleWaiters.push(fn); return; }
+    visibleWaiters = [fn];
+    var onVis = function () {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', onVis, false);
+      var queue = visibleWaiters || [];
+      visibleWaiters = null;
+      for (var i = 0; i < queue.length; i++) queue[i]();
+    };
+    document.addEventListener('visibilitychange', onVis, false);
+  }
 
   function applyThreadsPayload(list) {
     list = list || {};
@@ -1103,10 +1256,15 @@
        only thing that ever swaps fresh data in. */
     window.addEventListener('clinic:threads', function (ev) {
       if (!loaded || !ev || !ev.detail) return;
+      /* Read BEFORE applying: api.js has already dropped any pending row this
+         payload contains, so the count afterwards cannot tell us whether one of
+         them is what changed. */
+      var wasWaiting = hadPending;
       var sig = signatureOf(ev.detail);
-      if (sig === lastSig) return;      /* nothing has changed — leave the DOM alone */
+      if (sig === lastSig) { hadPending = pendingCount() > 0; return; }
       lastSig = sig;
       applyThreadsPayload(ev.detail);
+      hadPending = pendingCount() > 0;
       renderLanguageSwitcher();
       renderCategories();
       renderLabels();
@@ -1114,8 +1272,13 @@
       renderList();
       /* Say so. The list has just moved under someone who did not ask it to,
          and an unexplained shift reads as a glitch. Only ever on a real change,
-         so this is not per-visit noise. */
-      toast('Discussions updated.');
+         so this is not per-visit noise.
+         When what changed is THEIR post finally landing, say that instead: it
+         is the one board update the reader was actually waiting for, and
+         "Discussions updated." would bury the answer to their question. */
+      if (wasWaiting && !hadPending) toast('Your discussion is on the board.', 'success');
+      else toast('Discussions updated.');
+      schedulePendingRecheck();
     });
 
     Promise.all([bootP, threadsP]).then(function (res) {
@@ -1125,9 +1288,11 @@
       cfg = b.config || cfg;
       applyThreadsPayload(list);
       lastSig = signatureOf(list);
+      hadPending = pendingCount() > 0;
 
       loaded = true;
       renderAll();
+      schedulePendingRecheck();
     }).catch(function (e) {
       loaded = true;
       if (e && e.code === 'unauthorized') return;   /* api.js already bounced */

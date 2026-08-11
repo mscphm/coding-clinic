@@ -117,6 +117,16 @@
 
   function errMsg(e, fallback) { return (e && (e.message || e.error)) || fallback; }
 
+  /* Spinner-in-the-button. Falls back to the old label swap against a ui.js
+     that predates ui.busy(), so this page never depends on the newer file. */
+  function busyBtn(btn, label) {
+    if (!btn) return function () {};
+    if (typeof ui.busy === 'function') { try { return ui.busy(btn, label); } catch (e) {} }
+    var was = btn.textContent;
+    btn.disabled = true; btn.textContent = label;
+    return function () { btn.disabled = false; btn.textContent = was; };
+  }
+
   function currentUser() {
     try {
       if (typeof api.getUser === 'function') { var u = api.getUser(); if (u) return u; }
@@ -583,13 +593,12 @@
 
   function doSave(entries) {
     var btn = document.getElementById('profile-save');
-    var original = btn ? btn.textContent : 'Save changes';
     state.saving = true;
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    var restore = busyBtn(btn, 'Saving…');
     setFormDisabled(true);
 
-    /* The live backend takes 10-20s per call — the disabled button + label
-       above is the "this is working" signal while we wait. */
+    /* The live backend takes 10-20s per call — the spinner and the verb in the
+       button are the "this is working" signal while we wait. */
     api.call('profile.update', entries).then(function (data) {
       state.me = mergeUser(state.me, entries, data && data.user);
       applyBaseline();
@@ -607,7 +616,7 @@
          partial payload (see build report) — surface the error, do not
          throw, and leave the form exactly as the student left it. */
       state.saving = false;
-      if (btn) { btn.disabled = false; btn.textContent = original; }
+      restore();
       setFormDisabled(false);
       var msg = errMsg(e, 'Could not save your profile. Try again in a moment.');
       showError(document.getElementById('profile-error'), msg);

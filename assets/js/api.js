@@ -15,6 +15,12 @@
  *                                               fires 'clinic:threads' when the
  *                                               background refresh lands
  *   refreshThreads()          -> Promise<list>  force the network, then cache
+ *   addPendingThread(thread)                    show a just-created thread on the
+ *                                               board while Excel catches up
+ *   pendingThreads()          -> [thread]       the ones still not landed
+ *   pendingThreadById(id)     -> thread|null    ditto, one of them
+ *   activeCallCount()         -> number         requests in flight right now;
+ *                                               'clinic:activity' fires on change
  *   cachedThreads()           -> list|null      whatever is in localStorage,
  *                                               no network
  *   requireLogin()            -> bool            redirects to login.html if signed out
@@ -57,6 +63,9 @@
  *   clinic_threads         JSON cache of threads.list, {uid, at, data} — see the
  *                          note on threadsList() for why it is per-user and
  *                          age-capped
+ *   clinic_pending_threads JSON {uid, items:[{at, thread}]} of threads this
+ *                          browser created that threads.list has not caught up
+ *                          on yet — see the note above addPendingThread()
  */
 (function (window, document) {
   'use strict';
@@ -70,6 +79,7 @@
   var K_ISSUED = 'clinic_token_issued';
   var K_BOOT = 'clinic_bootstrap';
   var K_THREADS = 'clinic_threads';
+  var K_PENDING = 'clinic_pending_threads';
 
   /* — is an em dash; escaped so user-visible strings survive any charset. */
   var MSG_NETWORK = "Can't reach the server \u2014 check your connection and try again.";
@@ -207,6 +217,10 @@
        mean the next person sees nothing of the last one, not merely that the
        code declines to show it. */
     lsDel(K_THREADS);
+    /* Same argument, and a stronger one: an un-landed post is the one row on
+       the board that is not on the server yet, so nobody else can ever be shown
+       it by accident — but it is also the one row whose author is unambiguous. */
+    lsDel(K_PENDING);
   }
 
   function isInstructor() {
@@ -514,6 +528,47 @@
   };
   var inFlight = {};
 
+  /* ------------------------------------------------------- activity signal ---
+     EVERY call on this site is slow. 10-21 s per Excel round trip is the normal
+     case, not the tail, and a page with nothing moving on it reads as a page
+     that has died — which is precisely the misreading this release is trying to
+     stop. So dispatch() is counted, and the count is announced.
+
+     ui.js draws one thin bar at the top of the viewport from this event, and
+     any page that wants a local indicator can listen to the same signal instead
+     of inventing its own bookkeeping.
+
+     Counted around dispatch(), never around call(), so a DEDUPE'd second caller
+     riding the same in-flight promise does not double-count one request. The
+     count is decremented in both settle paths; there is no path out of
+     dispatch() that skips them. */
+  var activeCalls = 0;
+
+  function fireActivity() {
+    var detail = { active: activeCalls };
+    var ev;
+    try {
+      ev = new window.CustomEvent('clinic:activity', { detail: detail });
+    } catch (e) {                                  // very old engines
+      ev = document.createEvent('CustomEvent');
+      ev.initCustomEvent('clinic:activity', false, false, detail);
+    }
+    window.dispatchEvent(ev);
+  }
+
+  function tracked(p) {
+    activeCalls++;
+    fireActivity();
+    function done() {
+      activeCalls = activeCalls > 0 ? activeCalls - 1 : 0;
+      fireActivity();
+    }
+    return p.then(function (v) { done(); return v; },
+                  function (e) { done(); throw e; });
+  }
+
+  function activeCallCount() { return activeCalls; }
+
   function call(action, data) {
     if (typeof action !== 'string' || !action) {
       return Promise.reject(new ApiError('bad_request', 'Missing action name.'));
@@ -525,7 +580,7 @@
       key = action + '|' + sig;
       if (inFlight[key]) return inFlight[key];
     }
-    var p = dispatch(action, data);
+    var p = tracked(dispatch(action, data));
     if (key) {
       var done = function () { delete inFlight[key]; };
       p = p.then(function (v) { done(); return v; }, function (e) { done(); throw e; });
@@ -712,9 +767,14 @@
     if (!list || Object.prototype.toString.call(list.threads) !== '[object Array]') {
       return list;
     }
+    /* The RAW server payload is what gets cached. Pending rows are merged on
+       read (see withPending) so the cache never claims the server said
+       something it did not. */
     writeJSON(K_THREADS, { uid: currentUid(), at: Date.now(), data: list });
-    fireThreadsEvent(list);
-    return list;
+    reconcilePending(list);
+    var merged = withPending(list);
+    fireThreadsEvent(merged);
+    return merged;
   }
 
   function cachedThreads() {
@@ -724,7 +784,149 @@
     var at = Number(blob.at) || 0;
     if (!at || (Date.now() - at) > THREADS_MAX_AGE_MS) { lsDel(K_THREADS); return null; }
     var data = blob.data;
-    return (Object.prototype.toString.call(data.threads) === '[object Array]') ? data : null;
+    if (Object.prototype.toString.call(data.threads) !== '[object Array]') return null;
+    return withPending(data);
+  }
+
+  /* ------------------------------------------- just-posted threads (v3.2) ---
+
+     THE COMPLAINT THIS EXISTS TO ANSWER, IN THE STUDENT'S WORDS: "I pressed
+     Start discussion, it showed me my question, I went back to the board — and
+     it was not there. Did it post?"
+
+     It did. A resolved threads.create means the row was written. But an Excel
+     Online write is not READABLE for ~30 s, and threads.list itself costs
+     10-21 s on top of that, so for up to about a minute the board genuinely
+     cannot show the thread. Nothing on this end can shorten that window. What
+     it can do is stop the board from making a truthful delay look like a lost
+     post.
+
+     new.js already hands the new thread to thread.html through a sessionStorage
+     stash (PERF FIX 1b). This is the same trick for the BOARD, and it lives
+     here rather than in index.js so that search.js — and any later list — get
+     it without knowing about it.
+
+     THE SAME THREE RULES THAT MAKE THE THREADS CACHE SAFE APPLY HERE:
+       * NAMESPACED BY UID. On a shared lab machine one student's un-landed
+         post must never appear on the next student's board.
+       * TTL'd. Past PENDING_TTL_MS the copy is dropped rather than shown. A
+         post that never lands must not haunt the board for a week: after the
+         window, its absence is the truth and the student should see the truth.
+       * CLEARED ON SIGN-OUT with the token, the user and the two caches.
+
+     RECONCILIATION IS BY thread_id, ALWAYS — the same discipline thread.js
+     uses for pending replies. The moment threads.list returns the id, the
+     pending copy is dropped, so a row is never drawn twice and the REAL row,
+     with its real reply count, votes and badges, always wins.
+
+     The pending copy is merged ON READ and is never written into K_THREADS:
+     the cache stays a faithful record of what the server actually said. */
+
+  var PENDING_TTL_MS = 15 * 60 * 1000;
+
+  function pendingWrite(items) {
+    if (!items || !items.length) { lsDel(K_PENDING); return; }
+    writeJSON(K_PENDING, { uid: currentUid(), items: items });
+  }
+
+  function pendingRead() {
+    var blob = readJSON(K_PENDING);
+    if (!blob || typeof blob !== 'object') return [];
+    if (String(blob.uid || '') !== currentUid()) { lsDel(K_PENDING); return []; }
+    var items = (Object.prototype.toString.call(blob.items) === '[object Array]')
+      ? blob.items : [];
+    var now = Date.now(), keep = [], i, it;
+    for (i = 0; i < items.length; i++) {
+      it = items[i];
+      if (!it || !it.thread || !it.thread.thread_id) continue;
+      if (!(Number(it.at) > 0) || (now - Number(it.at)) > PENDING_TTL_MS) continue;
+      keep.push(it);
+    }
+    if (keep.length !== items.length) pendingWrite(keep);
+    return keep;
+  }
+
+  /* Called by new.js the instant threads.create resolves. `thread` is the full
+     ThreadFull shape it also stashes for thread.html, so the board can render a
+     complete card — title, author, category, labels — not a placeholder. */
+  function addPendingThread(thread) {
+    if (!thread || !thread.thread_id) return;
+    var items = pendingRead(), i;
+    for (i = 0; i < items.length; i++) {
+      if (String(items[i].thread.thread_id) === String(thread.thread_id)) return;
+    }
+    items.push({ at: Date.now(), thread: thread });
+    pendingWrite(items);
+  }
+
+  function pendingThreads() {
+    return pendingRead().map(function (it) { return it.thread; });
+  }
+
+  /* thread.js's fallback when its own single-thread sessionStorage stash is
+     gone (a second visit, another tab) but the row still has not propagated. */
+  function pendingThreadById(id) {
+    var items = pendingRead(), i;
+    for (i = 0; i < items.length; i++) {
+      if (String(items[i].thread.thread_id) === String(id)) return items[i].thread;
+    }
+    return null;
+  }
+
+  /* NOTE — THERE IS DELIBERATELY NO dropPendingThread(id) IN THIS FILE.
+     One existed briefly, called from thread.js when threads.get could see the
+     row. It is the wrong evidence: index.js does not paint the board from
+     threads.get, it paints it from the CACHED threads.list, which is a snapshot
+     taken before the thread existed. Retiring the pending copy on a threads.get
+     success therefore puts the student straight back into "I pressed Back and
+     my question is gone". A pending row may be retired by exactly two things:
+     threads.list returning the id (reconcilePending, below) or PENDING_TTL_MS. */
+
+  function idSet(list) {
+    var rows = (list && list.threads) || [];
+    var seen = {}, i;
+    for (i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].thread_id) seen[String(rows[i].thread_id)] = 1;
+    }
+    return seen;
+  }
+
+  /* Drop every pending copy the server has now caught up on. */
+  function reconcilePending(list) {
+    var items = pendingRead();
+    if (!items.length) return false;
+    var seen = idSet(list);
+    var keep = items.filter(function (it) {
+      return !seen[String(it.thread.thread_id)];
+    });
+    if (keep.length === items.length) return false;
+    pendingWrite(keep);
+    return true;
+  }
+
+  /* A COPY of the payload with the still-unlanded threads on the front, each
+     flagged `_pending` so index.js can say "posting" rather than pretend the
+     row is settled. Never mutates its argument: the caller may be holding the
+     cached blob itself. The leading underscore marks it as client-side only —
+     nothing on the wire ever carries it. */
+  function withPending(list) {
+    var items = pendingRead();
+    if (!items.length) return list;
+    var seen = idSet(list);
+    var extra = [], i, k, t, copy;
+    for (i = 0; i < items.length; i++) {
+      t = items[i].thread;
+      if (seen[String(t.thread_id)]) continue;
+      copy = {};
+      for (k in t) { if (Object.prototype.hasOwnProperty.call(t, k)) copy[k] = t[k]; }
+      copy._pending = true;
+      extra.push(copy);
+    }
+    if (!extra.length) return list;
+    var out = {};
+    for (k in list) { if (Object.prototype.hasOwnProperty.call(list, k)) out[k] = list[k]; }
+    out.threads = extra.concat((list && list.threads) || []);
+    return out;
   }
 
   function refreshThreads() {
@@ -776,6 +978,10 @@
     threadsList: threadsList,
     refreshThreads: refreshThreads,
     cachedThreads: cachedThreads,
+    addPendingThread: addPendingThread,
+    pendingThreads: pendingThreads,
+    pendingThreadById: pendingThreadById,
+    activeCallCount: activeCallCount,
     requireLogin: requireLogin,
     logout: logout,
     getToken: getToken,

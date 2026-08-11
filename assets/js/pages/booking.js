@@ -63,6 +63,16 @@
     if (type === 'error') console.error(msg); else console.log(msg);
   }
 
+  /* Spinner-in-the-button. Falls back to the old label swap against a ui.js
+     that predates ui.busy(), so this page never depends on the newer file. */
+  function busyBtn(btn, label) {
+    if (!btn) return function () {};
+    if (typeof ui.busy === 'function') { try { return ui.busy(btn, label); } catch (e) {} }
+    var was = btn.textContent;
+    btn.disabled = true; btn.textContent = label;
+    return function () { btn.disabled = false; btn.textContent = was; };
+  }
+
   function confirmModal(msg) {
     if (typeof ui.confirmModal === 'function') {
       try { return Promise.resolve(ui.confirmModal(msg)); } catch (e) { /* fall through */ }
@@ -490,15 +500,13 @@
     confirmModal('Cancel your clinic slot? The time goes back on offer for the rest of the class.')
       .then(function (yes) {
         if (!yes) return;
-        btn.disabled = true;
-        btn.textContent = 'Cancelling…';
+        var restore = busyBtn(btn, 'Cancelling…');
         return api.call('slots.cancel', { booking_id: b.booking_id }).then(function () {
           toast('Booking cancelled.', 'success');
           state.selected = null;
           return refresh();
         })['catch'](function (e) {
-          btn.disabled = false;
-          btn.textContent = 'Cancel booking';
+          restore();
           if (e && e.code === 'cutoff_passed') {
             toast('Past cutoff — email the instructor.', 'error');
             return refresh();
@@ -730,9 +738,8 @@
      booking. This is the same situation an older flow reports as a 'conflict'
      rejection, so it lands in the same place: server's own wording, form left
      usable, thread kept selected, grid refreshed. */
-  function onBookingRejected(res, vals, btn, original, errBox) {
-    btn.disabled = false;
-    btn.textContent = original;
+  function onBookingRejected(res, vals, btn, restore, errBox) {
+    restore();
     var msg = (res && typeof res.message === 'string' && res.message)
       || (res && typeof res.error === 'string' && res.error)
       || 'Someone booked that slot a moment before you did — please pick another one.';
@@ -770,9 +777,10 @@
   }
 
   function submitBooking(vals, btn, errBox) {
-    btn.disabled = true;
-    var original = btn.textContent;
-    btn.textContent = 'Booking…';
+    /* slots.book is a write plus a confirmation email — the longest single wait
+       on the site. A word with nothing moving beside it is exactly what makes a
+       student press the button twice. */
+    var restore = busyBtn(btn, 'Booking…');
     writeJson(PREFILL_KEY, { full_name: vals.full_name, phone: vals.phone });
 
     api.call('slots.book', {
@@ -784,7 +792,7 @@
       note: vals.note
     }).then(function (res) {
       if (bookingVerdict(res) === 'rejected') {
-        onBookingRejected(res, vals, btn, original, errBox);
+        onBookingRejected(res, vals, btn, restore, errBox);
         return;
       }
       onBookingAccepted(res, vals);
@@ -794,8 +802,7 @@
         onBookingTransportFailure(vals);
         return;
       }
-      btn.disabled = false;
-      btn.textContent = original;
+      restore();
       if (code === 'conflict') {
         /* NEVER substitute our own wording here. One 'conflict' code covers
            two opposite situations:

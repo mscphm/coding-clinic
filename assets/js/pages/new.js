@@ -36,6 +36,16 @@
   }
   function icon(name) { try { return toNode(UI().icon(name)); } catch (e) { return el('span'); } }
   function relTime(iso) { try { return UI().relTime(iso) || ''; } catch (e) { return ''; } }
+  /* Spinner-in-the-button. Falls back to the old label swap against a ui.js
+     that predates ui.busy(), so this page never depends on the newer file. */
+  function busyBtn(btn, label) {
+    if (!btn) return function () {};
+    var ui = UI();
+    if (typeof ui.busy === 'function') { try { return ui.busy(btn, label); } catch (e) {} }
+    var was = btn.textContent;
+    btn.disabled = true; btn.textContent = label;
+    return function () { btn.disabled = false; btn.textContent = was; };
+  }
 
   /* ==========================================================================
    * HAND-OFF STASH TO thread.html  (PERF FIX 1b)
@@ -164,6 +174,38 @@
     { label: 'Link', title: 'Link', fn: function (ta) { edSurround(ta, '[', '](https://)', 'link text'); } },
     { label: '• List', title: 'Bulleted list', fn: function (ta) { edLinePrefix(ta, '- '); } }
   ];
+  /* ---- live side-by-side preview (shared with thread.js) -------------------
+     The Write/Preview tabs are a mode switch: to check whether a code fence is
+     closed you had to leave the box you were typing in, look, and come back.
+     For a first-year writing their first fenced block that is the difference
+     between "I can see it working" and "I hope this is right".
+
+     So there is a third state — SPLIT — where the preview sits beside the
+     textarea and re-renders as you type. It is a TOGGLE, not a replacement: the
+     tabs still work exactly as they did, split is off until asked for, and the
+     choice is remembered per browser.
+
+     WHY IT IS DEBOUNCED AND DIFFED. renderInto() is marked -> DOMPurify ->
+     highlight.js -> KaTeX -> attachment rewrite. Running that on every keystroke
+     of a 10 000-character body is real work, and re-rendering also rebuilds any
+     <img class="clinic-att">, which re-queues an attach.get (10-21 s) for an
+     image whose bytes are not in markdown.js's session cache yet. So: 200 ms
+     after the last keystroke, and never for text we have already rendered.
+     uploads.js additionally primes that cache with the bytes it just uploaded,
+     so the common case — you paste a screenshot and keep typing — costs nothing.
+
+     Below MD_SPLIT_MIN_PX the columns stack instead (main.css §12), because two
+     35-character columns are worse than either one alone. */
+  var LS_SPLIT = 'clinic_split_preview';
+  var SPLIT_DEBOUNCE_MS = 200;
+
+  function splitPref() {
+    try { return window.localStorage.getItem(LS_SPLIT) === '1'; } catch (e) { return false; }
+  }
+  function saveSplitPref(on) {
+    try { window.localStorage.setItem(LS_SPLIT, on ? '1' : '0'); } catch (e) { /* private mode */ }
+  }
+
   function buildEditor(opts) {
     opts = opts || {};
     var wrap = el('div', 'composer');
@@ -177,7 +219,24 @@
     tabs.appendChild(tWrite);
     tabs.appendChild(tPrev);
 
+    tabs.appendChild(el('span', 'grow'));
+
+    /* The split toggle. aria-pressed (not aria-selected) because it is a
+       two-state switch sitting beside a two-item tablist, and conflating the
+       two would tell a screen reader there are three tabs. */
+    var tSplit = el('button', 'tab md-split-toggle');
+    tSplit.type = 'button';
+    tSplit.appendChild(icon('columns'));
+    tSplit.appendChild(el('span', null, 'Live preview'));
+    tSplit.title = 'Show the formatted version beside what you type, updating live';
+    tSplit.setAttribute('aria-pressed', 'false');
+    tabs.appendChild(tSplit);
+
     var bar = el('div', 'md-toolbar');
+
+    /* The two panes live in a wrapper so split mode is one class on one node
+       rather than a pile of inline styles that have to be undone. */
+    var panes = el('div', 'md-panes');
 
     var ta = el('textarea', 'textarea');
     ta.rows = opts.rows || 10;
@@ -188,6 +247,10 @@
 
     var prev = el('div', 'md-preview');
     prev.hidden = true;
+    prev.setAttribute('aria-live', 'off');   /* it mirrors the box they are in */
+
+    panes.appendChild(ta);
+    panes.appendChild(prev);
 
     MD_TOOLS.forEach(function (t) {
       if (t.sep) { bar.appendChild(el('span', 'md-tool-sep')); return; }
@@ -199,21 +262,84 @@
       bar.appendChild(b);
     });
 
+    /* D11's "or click a button" half. uploads.js owns the file input, the
+       progress tiles and every failure path; this is only the affordance, and
+       it is handed over in attach()'s `button` option below. The toolbar is
+       where someone looks for it — beside bold, italic and code. */
+    bar.appendChild(el('span', 'md-tool-sep'));
+    var imgBtn = el('button', 'md-tool-image');
+    imgBtn.type = 'button';
+    imgBtn.title = 'Add an image — or just paste or drop one into the box';
+    imgBtn.setAttribute('aria-label', 'Add an image');
+    imgBtn.appendChild(icon('image'));
+    imgBtn.appendChild(el('span', null, 'Image'));
+    bar.appendChild(imgBtn);
+
+    var split = false;
+    var renderTimer = null;
+    var lastRendered = null;
+
+    function paintPreview() {
+      var value = ta.value;
+      if (value === lastRendered) return;
+      lastRendered = value;
+      var md = MD();
+      if (md && typeof md.renderInto === 'function') md.renderInto(prev, value);
+      else { clear(prev); prev.appendChild(el('pre', null, value)); }
+    }
+
+    function schedulePreview() {
+      if (!split) return;
+      if (renderTimer) window.clearTimeout(renderTimer);
+      renderTimer = window.setTimeout(function () {
+        renderTimer = null;
+        paintPreview();
+      }, SPLIT_DEBOUNCE_MS);
+    }
+
+    function applySplit(on) {
+      split = !!on;
+      wrap.classList[split ? 'add' : 'remove']('is-split');
+      tSplit.classList[split ? 'add' : 'remove']('active');
+      tSplit.setAttribute('aria-pressed', split ? 'true' : 'false');
+      if (split) {
+        /* Split wins over whichever tab was showing: both panes are visible, so
+           "which tab is selected" stops meaning anything until it is off again. */
+        tWrite.classList.add('active'); tPrev.classList.remove('active');
+        tWrite.setAttribute('aria-selected', 'true');
+        tPrev.setAttribute('aria-selected', 'false');
+        ta.hidden = false; bar.hidden = false; prev.hidden = false;
+        lastRendered = null;
+        paintPreview();
+      } else {
+        if (renderTimer) { window.clearTimeout(renderTimer); renderTimer = null; }
+        showWrite();
+      }
+    }
+
     function showWrite() {
+      if (split) return;                 /* the tabs are inert while split is on */
       tWrite.classList.add('active'); tPrev.classList.remove('active');
       tWrite.setAttribute('aria-selected', 'true'); tPrev.setAttribute('aria-selected', 'false');
       ta.hidden = false; bar.hidden = false; prev.hidden = true;
     }
     function showPreview() {
+      if (split) return;
       tPrev.classList.add('active'); tWrite.classList.remove('active');
       tPrev.setAttribute('aria-selected', 'true'); tWrite.setAttribute('aria-selected', 'false');
       ta.hidden = true; bar.hidden = true; prev.hidden = false;
-      var md = MD();
-      if (md && typeof md.renderInto === 'function') md.renderInto(prev, ta.value);
-      else { clear(prev); prev.appendChild(el('pre', null, ta.value)); }
+      lastRendered = null;
+      paintPreview();
     }
     tWrite.addEventListener('click', showWrite);
     tPrev.addEventListener('click', showPreview);
+    tSplit.addEventListener('click', function () {
+      applySplit(!split);
+      saveSplitPref(split);
+      if (split) ta.focus();
+    });
+
+    ta.addEventListener('input', schedulePreview);
 
     ta.addEventListener('keydown', function (ev) {
       if (!(ev.ctrlKey || ev.metaKey)) return;
@@ -224,10 +350,19 @@
 
     wrap.appendChild(tabs);
     wrap.appendChild(bar);
-    wrap.appendChild(ta);
-    wrap.appendChild(prev);
+    wrap.appendChild(panes);
     if (opts.footer) wrap.appendChild(opts.footer);
-    return { root: wrap, textarea: ta, preview: prev, showWrite: showWrite };
+
+    if (splitPref()) applySplit(true);
+
+    return {
+      root: wrap, textarea: ta, preview: prev, showWrite: showWrite,
+      imageButton: imgBtn,
+      /* uploads.js inserts markdown straight into the textarea's value, which
+         fires no `input` event — so it calls this to keep a live preview
+         honest. */
+      refreshPreview: schedulePreview
+    };
   }
   /* ==================================================== end shared editor === */
 
@@ -847,7 +982,10 @@
     setError('');
 
     busy = true;
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Posting…'; }
+    /* "Posting…" with nothing moving beside it is the exact reading this whole
+       release is fixing. ui.busy() puts a spinner in the button, disables it,
+       and hands back the function that restores the real label. */
+    var restoreBtn = busyBtn(submitBtn, 'Posting…');
 
     API().call('threads.create', {
       title: title,
@@ -871,10 +1009,18 @@
          without waiting out the propagation window. Wrapped, because losing the
          stash costs a spinner and losing the redirect costs the student's post. */
       try {
-        stashNewThread(id, createdThreadShape(id, {
+        var shape = createdThreadShape(id, {
           title: title, body: body, category: category, language: language,
           labels: Object.keys(picked), anon: anon
-        }));
+        });
+        stashNewThread(id, shape);
+        /* And the same hand-off for the BOARD. Without this, going back to
+           index.html inside the propagation window shows a list with the
+           question missing — which reads as "it did not post", which is the
+           bug report that produced this line. api.js keeps it until
+           threads.list returns the id, then drops it; see addPendingThread(). */
+        var api2 = API();
+        if (typeof api2.addPendingThread === 'function') api2.addPendingThread(shape);
       } catch (e3) { /* thread.js falls back to its retry ladder */ }
       /* &new=1 tells thread.js this thread was JUST created, so a 'not_found'
          on the very next load is the Excel Online write/read propagation
@@ -884,7 +1030,7 @@
       location.href = 'thread.html?id=' + encodeURIComponent(id) + '&new=1';
     })['catch'](function (e) {
       busy = false;
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Start discussion'; }
+      restoreBtn();
       if (e && e.code === 'unauthorized') return;      /* api.js already bounced */
       setError(errText(e));
       toast(errText(e), 'error');
@@ -984,9 +1130,17 @@
         upl.attach({
           textarea: editor.textarea,
           tray: tray,
-          button: null,
-          scope: 'thread'       /* a new thread has no id yet; scope_id is not
+          /* The toolbar's "Image" button. Paste and drop already worked; a
+             control you can SEE is what makes the feature discoverable to
+             someone who has never pasted an image into a web page. uploads.js
+             hides it by itself when attachments are unavailable. */
+          button: editor.imageButton,
+          scope: 'thread',      /* a new thread has no id yet; scope_id is not
                                    required for 'thread' scope (§4.3) */
+          /* Inserting markdown sets textarea.value directly, which fires no
+             `input` event — so a live preview would sit there missing the
+             screenshot that just landed. */
+          onInsert: editor.refreshPreview
         });
       } catch (e) { /* §10.10: quiet. Never a console error on this path. */ }
     }

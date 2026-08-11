@@ -650,6 +650,24 @@
     return Object.prototype.hasOwnProperty.call(attCache, id) ? attCache[id] : null;
   }
 
+  /* Bytes we already hold. uploads.js calls this the instant attach.create
+     resolves, because the browser is what downscaled and re-encoded the image
+     in the first place — the canonical bytes for that attachment_id are sitting
+     in this tab already.
+
+     Without it, the very next render queues an attach.get for an image it is
+     holding: 10-21 s for the round trip, and very likely the full not-found
+     ladder on top, because a just-written OneDrive row is no more readable than
+     a just-written Excel row. With it, a pasted screenshot appears in the live
+     preview immediately and is still there, instantly, on the posted thread. */
+  function primeAttachment(id, contentType, dataB64) {
+    if (!id || !dataB64) return;
+    attCache[String(id)] = {
+      content_type: contentType || 'image/png',
+      data_b64: String(dataB64)
+    };
+  }
+
   function attCaption(img, message) {
     var next = img.nextSibling;
     if (next && next.nodeType === 1 && next.className === 'clinic-att-caption') {
@@ -860,7 +878,8 @@
     available: haveLibs,
     mathAvailable: mathAvailable,
     renderMath: renderMath,
-    resolveImages: resolveImages
+    resolveImages: resolveImages,
+    primeAttachment: primeAttachment
   };
 
 })(window, document);

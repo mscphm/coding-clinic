@@ -36,6 +36,14 @@
      Clinic.ui.isUnknownAction(err)       the FEATURE-ABSENT detector
      Clinic.ui.endpointFor(action)        'auth' | 'admin' | 'msg' | 'app'
 
+   WAITING (see the long note in the file — one vocabulary, three sizes)
+     Clinic.ui.spinner([cls])             -> <span class="spinner">
+     Clinic.ui.busy(btn, label)           -> restore()   spinner + verb, disabled
+     Clinic.ui.skeleton(kind[, n])        -> grey rows shaped like what is coming
+     Clinic.ui.loadingBlock(msg, kind, n) -> live-region message + skeleton
+     Clinic.ui.mountNetBar()              the site-wide activity bar (automatic
+                                          for any page that calls renderHeader)
+
    NOTE — avatar(), icon() and pill() return real DOM elements whose
    toString() is overridden to return outerHTML, so BOTH styles work:
        box.appendChild(Clinic.ui.icon('tag'));
@@ -272,10 +280,16 @@
       'M12.77 12.77l-1.13-1.13M3.23 3.23l1.13 1.13"/>',
     'moon':
       '<path d="M12.6 10.6A6.2 6.2 0 0 1 5.4 3.4 6.2 6.2 0 1 0 12.6 10.6Z"/>',
+    /* r was 1.15. Three 1.15px dots in --fg-muted inside a transparent,
+       borderless button is a control the instructor reported not being able to
+       FIND — the affordance is now mostly on .btn-kebab in main.css §6, but the
+       glyph itself was also below the size where three dots read as "menu"
+       rather than as a rendering artefact. 1.45 is still GitHub-ish; it is just
+       actually visible at 16px on a laptop screen. */
     'kebab':
-      '<circle cx="8" cy="3.25" r="1.15"' + DOT + '/>' +
-      '<circle cx="8" cy="8" r="1.15"' + DOT + '/>' +
-      '<circle cx="8" cy="12.75" r="1.15"' + DOT + '/>',
+      '<circle cx="8" cy="3" r="1.45"' + DOT + '/>' +
+      '<circle cx="8" cy="8" r="1.45"' + DOT + '/>' +
+      '<circle cx="8" cy="13" r="1.45"' + DOT + '/>',
     'x':
       '<path d="M4 4 12 12M12 4 4 12"/>',
     'plus':
@@ -362,7 +376,11 @@
     'image':
       '<rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.75"/>' +
       '<circle cx="5.6" cy="6.2" r="1.1"' + DOT + '/>' +
-      '<path d="M2.25 11.75 6 8.25l2.4 2.2 2.35-2.35 2.9 2.9"/>'
+      '<path d="M2.25 11.75 6 8.25l2.4 2.2 2.35-2.35 2.9 2.9"/>',
+    /* Two panes side by side — the live-preview toggle in the composer. */
+    'columns':
+      '<rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.75"/>' +
+      '<path d="M8 2.75v10.5"/>'
   };
 
   function iconMarkup(name, className) {
@@ -741,6 +759,154 @@
     return btn;
   }
 
+  /* =========================================================================
+     WAITING, SAID OUT LOUD
+     -------------------------------------------------------------------------
+     Every backend call on this site takes 10-21 s, because every one of them is
+     an Excel Online round trip. That is not going to change from this end. What
+     it does mean is that "nothing is moving" is the DEFAULT state of the page
+     for most of a normal interaction, and a page where nothing moves is read as
+     a page that is broken — which is exactly the misreading that produced this
+     release ("did my post go through?").
+
+     So there is one vocabulary for waiting, in three sizes, and every page uses
+     it instead of inventing its own:
+
+       netBar()            the site-wide thread. One 2px bar under the header
+                           that moves whenever ANY request is in flight, driven
+                           off api.js's 'clinic:activity'. Mounted once, by the
+                           header. Nothing has to opt in.
+       busy(btn, label)    the local one. Swaps a button's contents for a
+                           spinner and a verb, disables it, and returns the
+                           function that puts it back. Every submit button on
+                           the site is meant to go through this, so "Posting…"
+                           can never again be a word with nothing moving beside
+                           it.
+       skeleton(kind, n)   the first-paint one. Grey rows shaped like the thing
+                           that is coming, instead of a lone spinner in the
+                           middle of an empty page.
+
+     All three respect prefers-reduced-motion through main.css §15 — the
+     animations slow and stop moving, the INFORMATION never disappears.
+     ====================================================================== */
+
+  function spinner(extraClass) {
+    return el('span', 'spinner' + (extraClass ? ' ' + extraClass : ''));
+  }
+
+  /* Returns restore(). Calling it twice is harmless. `busy()` on a button that
+     is already busy is a no-op that returns the ORIGINAL restore, so a
+     double-clicked submit cannot lose the button's real label. */
+  function busy(btn, label) {
+    if (!btn) return function () {};
+    if (btn.__clinicRestore) return btn.__clinicRestore;
+
+    var kids = [], i;
+    for (i = 0; i < btn.childNodes.length; i++) kids.push(btn.childNodes[i]);
+    var wasDisabled = !!btn.disabled;
+    var hadBusyAttr = btn.getAttribute('aria-busy');
+
+    while (btn.firstChild) btn.removeChild(btn.firstChild);
+    btn.appendChild(spinner('spinner-inline'));
+    btn.appendChild(el('span', null, label || 'Working…'));
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+
+    function restore() {
+      if (btn.__clinicRestore !== restore) return;
+      btn.__clinicRestore = null;
+      while (btn.firstChild) btn.removeChild(btn.firstChild);
+      for (var k = 0; k < kids.length; k++) btn.appendChild(kids[k]);
+      btn.disabled = wasDisabled;
+      if (hadBusyAttr === null) btn.removeAttribute('aria-busy');
+      else btn.setAttribute('aria-busy', hadBusyAttr);
+    }
+    btn.__clinicRestore = restore;
+    return restore;
+  }
+
+  /* 'thread' | 'comment' | 'row' | 'line'. Shaped like what is loading rather
+     than generic, because the shape is half of what tells someone the page is
+     working and not blank. */
+  function skeleton(kind, count) {
+    var host = el('div', 'skeleton-set');
+    host.setAttribute('aria-hidden', 'true');       /* the live region says it */
+    var n = Math.max(1, count || 3), i;
+    for (i = 0; i < n; i++) {
+      var row = el('div', 'skeleton-row skeleton-' + (kind || 'row'));
+      row.appendChild(el('span', 'skeleton-bar skeleton-bar-title'));
+      row.appendChild(el('span', 'skeleton-bar skeleton-bar-meta'));
+      if (kind === 'thread' || kind === 'comment') {
+        row.appendChild(el('span', 'skeleton-bar skeleton-bar-body'));
+      }
+      host.appendChild(row);
+    }
+    return host;
+  }
+
+  /* A skeleton with a polite live region above it, for the case where the
+     region being filled is the whole point of the page. */
+  function loadingBlock(message, kind, count) {
+    var box = el('div', 'loading-block');
+    var say = el('p', 'loading-block-msg');
+    say.setAttribute('role', 'status');
+    say.appendChild(spinner('spinner-inline'));
+    say.appendChild(el('span', null, message || 'Loading…'));
+    box.appendChild(say);
+    box.appendChild(skeleton(kind, count));
+    return box;
+  }
+
+  /* ---- the site-wide bar -------------------------------------------------
+     One node, created on first use and never removed. It is deliberately NOT a
+     percentage: we cannot know how far through a 10-21 s Excel call we are, and
+     a bar that claims 80% and then sits there is a worse lie than one that only
+     claims "still going". A 220 ms grace period keeps a fast mock call or a
+     cache hit from producing a flicker. */
+  var netBarEl = null;
+  var netBarTimer = null;
+
+  function ensureNetBar() {
+    if (netBarEl && netBarEl.parentNode) return netBarEl;
+    if (!document.body) return null;
+    netBarEl = el('div', 'net-bar');
+    netBarEl.setAttribute('aria-hidden', 'true');
+    netBarEl.appendChild(el('span', 'net-bar-fill'));
+    document.body.appendChild(netBarEl);
+    return netBarEl;
+  }
+
+  function setNetBar(on) {
+    var bar = ensureNetBar();
+    if (!bar) return;
+    if (netBarTimer) { window.clearTimeout(netBarTimer); netBarTimer = null; }
+    if (on) {
+      netBarTimer = window.setTimeout(function () {
+        netBarTimer = null;
+        if (netBarEl) netBarEl.classList.add('is-active');
+      }, 220);
+    } else if (netBarEl) {
+      netBarEl.classList.remove('is-active');
+    }
+  }
+
+  var netBarWired = false;
+  function mountNetBar() {
+    if (netBarWired) return;
+    netBarWired = true;
+    window.addEventListener('clinic:activity', function (ev) {
+      var n = (ev && ev.detail && Number(ev.detail.active)) || 0;
+      setNetBar(n > 0);
+    });
+    /* A call may already be in flight by the time the header renders. */
+    try {
+      var api = Clinic.api;
+      if (api && typeof api.activeCallCount === 'function' && api.activeCallCount() > 0) {
+        setNetBar(true);
+      }
+    } catch (e) { /* api.js not loaded on this page */ }
+  }
+
   function mockSwitchUser(persona) {
     var mock = Clinic.mock;
     var fn = null;
@@ -944,6 +1110,9 @@
     if (!host) return null;
     lastActive = active === undefined ? lastActive : active;
 
+    /* Every page with a header gets the activity bar, without asking for it. */
+    mountNetBar();
+
     var activeKey = resolveActive(lastActive);
     host.classList.add('app-header');
     host.innerHTML = '';
@@ -1134,6 +1303,13 @@
   ui.renderHeader = renderHeader;
   ui.renderSidebarShell = renderSidebarShell;
   ui.mountThemeToggle = mountThemeToggle;
+
+  /* The one waiting vocabulary — see the long note above spinner(). */
+  ui.spinner = spinner;
+  ui.busy = busy;
+  ui.skeleton = skeleton;
+  ui.loadingBlock = loadingBlock;
+  ui.mountNetBar = mountNetBar;
 
   ui.getTheme = getTheme;
   ui.setTheme = setTheme;

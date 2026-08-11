@@ -42,13 +42,14 @@
                     .label-cloud .notice-box .leaderboard .lb-row .lb-rank
                     .lb-medal .lb-score           extra: .counter .lb-name
      Buttons ...... .btn .btn-primary .btn-danger .btn-sm .btn-invisible
-                    extra: .btn-block .btn-group .btn-icon .btn.selected
+                    extra: .btn-block .btn-group .btn-icon .btn-kebab .btn.selected
      Forms ........ .input .textarea .select .field .field-label .field-hint
                     .checkbox-row .form-error     extra: .input-sm .form-row
      Thread list .. .thread-list .thread-row .thread-row-icon .thread-row-title
                     .thread-row-meta .thread-row-stats .pill .pill-category
                     .badge-answered .badge-pinned .badge-top-contrib
-                    extra: .badge .stat-chip
+                    extra: .badge .stat-chip .badge-pending
+                           .thread-row.is-clickable / .is-pending
      Thread view .. .thread-header .thread-title .thread-sub .timeline .comment
                     .comment-header .comment-author .comment-time .comment-body
                     .comment-accepted .comment-nested .vote-btn(.voted)
@@ -1085,6 +1086,38 @@ html[data-theme="dark"] .lb-medal.rank-3 { color: #cd7f32; }
   color: var(--accent);
 }
 
+/* THE "…" MENU, MADE FINDABLE.
+   Reported by the instructor: the row-action menus on admin.html and beside
+   every post on thread.html could not be seen. Both were built on a fully
+   transparent button (.btn-invisible / .btn-icon: transparent background,
+   transparent border, --fg-muted glyph), so at rest the entire affordance was
+   three faint dots floating in whitespace — and on a touch screen, where there
+   is no hover, there was no moment at which they ever appeared at all.
+
+   This keeps it a quiet control (it is not a primary action) but gives it the
+   three things that make a control a control: a resting outline, a glyph in
+   --fg-default rather than --fg-muted, and a target big enough to hit. The
+   kebab glyph itself was also enlarged — see ICONS in ui.js. */
+.btn-kebab {
+  min-width: 34px;
+  padding: 6px 8px;
+  color: var(--fg-default);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  box-shadow: none;
+}
+.btn-kebab:hover {
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-color: var(--accent-emphasis);
+}
+.btn-kebab[aria-expanded="true"] {
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-color: var(--accent-emphasis);
+}
+.btn-kebab svg { color: currentColor; }
+
 .btn-block { display: flex; width: 100%; }
 
 .btn.selected, .btn[aria-pressed="true"] {
@@ -1540,6 +1573,61 @@ html[data-theme="dark"] .avatar {
   background: linear-gradient(135deg, rgba(255, 107, 53, 0.07) 0%, var(--bg-canvas) 60%);
   border-color: rgba(255, 107, 53, 0.45);
   border-left-color: var(--nus-orange);
+}
+
+/* THE WHOLE CARD IS THE LINK (index.js threadRow). The <a> still does all the
+   real work — focus, middle-click, "open in new tab", the status-bar preview —
+   and index.js only forwards clicks that landed on the padding. This is the
+   part that says so: a pointer over the whole card, and the title underlining
+   on card hover so it is obvious WHERE the click goes, not merely that it
+   goes somewhere. The controls inside keep their own cursor. */
+.thread-row.is-clickable { cursor: pointer; }
+.thread-row.is-clickable:hover .thread-row-title { text-decoration: underline; }
+.thread-row.is-clickable a,
+.thread-row.is-clickable button,
+.thread-row.is-clickable [role="button"] { cursor: pointer; }
+/* Keyboard parity: the card lights up when the title inside it is focused, so
+   tabbing through the board looks the same as mousing over it. */
+.thread-row.is-clickable:focus-within {
+  border-color: var(--border-default);
+  border-left-color: var(--nus-orange);
+  box-shadow: 0 6px 20px rgba(0, 61, 124, 0.10);
+}
+
+/* THE JUST-POSTED ROW (api.js's pending store). Deliberately NOT greyed out
+   and NOT reduced to a placeholder: the discussion is real, it is open, and it
+   can be clicked into right now — the only thing that has not happened yet is
+   the shared spreadsheet catching up. So it looks like every other card, plus
+   a dashed accent edge and a badge that is honest about the wait. */
+.thread-row.is-pending {
+  border-style: dashed;
+  border-color: rgba(255, 107, 53, 0.45);
+  border-left: 3px solid var(--nus-orange);
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.06) 0%, var(--bg-canvas) 55%);
+}
+.thread-row.is-pending:hover { border-color: var(--nus-orange); }
+
+.badge-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  color: var(--nus-orange);
+  background: rgba(255, 107, 53, 0.12);
+  border: 1px solid rgba(255, 107, 53, 0.35);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.badge-pending .spinner {
+  width: 11px;
+  height: 11px;
+  border-width: 1.5px;
+  vertical-align: 0;
+  border-color: rgba(255, 107, 53, 0.3);
+  border-top-color: var(--nus-orange);
 }
 
 .thread-row-icon {
@@ -2181,6 +2269,74 @@ html[data-theme="dark"] .markdown-body table th { color: var(--fg-on-emphasis); 
   font-style: italic;
 }
 
+/* ---- live side-by-side preview -----------------------------------------
+   Write/Preview is a MODE SWITCH: checking whether a code fence is closed
+   meant leaving the box you were typing in. For a first-year writing their
+   first fenced block, that is the difference between seeing it work and
+   hoping it worked.
+
+   .md-panes is a plain block by default, so the tabs behave EXACTLY as they
+   always did — .is-split is the only thing that changes anything, and turning
+   it off restores the old composer completely. */
+.md-panes { display: block; }
+
+.md-split-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.md-split-toggle svg { width: 14px; height: 14px; }
+
+.md-tool-image {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  /* Wider than the single-glyph tools because it carries a word. The word is
+     the point: "Image" is what someone scans the toolbar for. */
+  padding: 0 10px !important;
+  font-weight: 600;
+}
+.md-tool-image svg { width: 14px; height: 14px; }
+.md-tool-image[hidden] { display: none !important; }
+
+@media (min-width: 900px) {
+  .composer.is-split .md-panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+  }
+  /* A vertical rule instead of a gap: the two panes are two views of ONE
+     document, and a gutter would read as two separate boxes. */
+  .composer.is-split .md-preview {
+    border-left: 1px solid var(--border-muted);
+    overflow-y: auto;
+  }
+  .composer.is-split .textarea,
+  .composer.is-split textarea {
+    border-right: 0;
+    resize: vertical;
+  }
+  /* Both panes scroll independently and neither may drag the page taller than
+     the screen while someone is typing into it. */
+  .composer.is-split .md-panes > * {
+    max-height: 62vh;
+    min-height: 220px;
+  }
+}
+
+/* Below 900px the columns would be ~35 characters each, which is worse than
+   either pane alone — so split STACKS rather than turning itself off. The
+   preview is still live, still below the caret, and the toggle still means
+   what it said. */
+@media (max-width: 899px) {
+  .composer.is-split .md-preview {
+    border-top: 1px solid var(--border-muted);
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  .composer.is-split .md-split-toggle span { display: none; }
+}
+
 .composer-footer {
   display: flex;
   flex-wrap: wrap;
@@ -2671,6 +2827,7 @@ html[data-theme="dark"] .admin-table thead th { color: var(--fg-on-emphasis); }
 
 /* -------------------------------------------------------------------------
    15. Feedback: toasts, modals, empty states, spinner, tooltip
+       + the waiting vocabulary: .net-bar .skeleton-* .loading-block-msg
    ---------------------------------------------------------------------- */
 
 #toasts {
@@ -2814,7 +2971,137 @@ html[data-theme="dark"] .admin-table thead th { color: var(--fg-on-emphasis); }
   display: block;
   margin: 44px auto;
 }
+/* Inside a button, beside a word. Sized to the text it sits next to rather
+   than to the 16px default, so a .btn-sm does not grow when it goes busy. */
+.spinner-inline {
+  width: 13px;
+  height: 13px;
+  border-width: 2px;
+  vertical-align: -2px;
+  margin-right: 2px;
+  flex: 0 0 auto;
+}
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* =========================================================================
+   WAITING, SAID OUT LOUD  (ui.js: netBar / busy / skeleton)
+
+   Every backend call here is an Excel Online round trip: 10-21 s is the
+   NORMAL case. So for most of a normal interaction the honest state of this
+   page is "still going", and a page where nothing moves is read as a page
+   that has died. These three are the vocabulary for saying otherwise. All of
+   them degrade under prefers-reduced-motion in §24: the animation stops, the
+   information does not.
+   ====================================================================== */
+
+/* The site-wide thread. One 2px bar pinned to the top of the viewport that
+   moves whenever ANY request is in flight, driven off api.js's
+   'clinic:activity'. Deliberately NOT a percentage — we cannot know how far
+   through a 15 s Excel call we are, and a bar that claims 80% and then sits
+   there is a worse lie than one that only claims "still going".
+
+   Z-INDEX: 1100. It has to clear .app-header, which is position:sticky at
+   top:0 with z-index 1000 and would otherwise sit on top of the one thing
+   whose whole job is to be seen. It is 2px tall and pointer-events:none, so
+   being above the modal backdrop (300) and the toast stack (200) costs
+   nothing and is arguably right: a request in flight is still worth saying
+   while a dialog is open. */
+.net-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 1100;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.net-bar.is-active { opacity: 1; }
+.net-bar-fill {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(90deg,
+    rgba(255, 107, 53, 0) 0%,
+    var(--nus-orange) 45%,
+    var(--accent) 100%);
+  transform: translateX(-100%);
+}
+.net-bar.is-active .net-bar-fill {
+  animation: net-bar-slide 1150ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes net-bar-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* The first-paint one. Grey rows shaped like the thing that is coming, so a
+   20-second cold load looks like a page assembling itself rather than a page
+   that failed to load. */
+.loading-block-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.skeleton-set {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 17px 18px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  border-left: 3px solid var(--border-muted);
+  border-radius: 12px;
+}
+.skeleton-bar {
+  display: block;
+  height: 11px;
+  border-radius: 6px;
+  /* The sweep is a gradient on a 200%-wide background, so there is exactly one
+     animated property (background-position) and no layout work per frame.
+
+     THE GRADIENT IS BUILT FROM THE BORDER TOKENS, NOT THE SURFACE TOKENS, and
+     that is deliberate: --bg-subtle and --bg-inset are the SAME colour in the
+     light theme (#f8fafc), so a light->inset->light sweep is invisible in
+     exactly the theme most people use. --border-muted and --border-default are
+     alpha over whatever is behind them (navy in light, pale blue in dark), so
+     they composite to a visible sweep on the card in both themes without
+     needing a token that does not exist yet. */
+  background-color: var(--bg-subtle);
+  background-image: linear-gradient(90deg,
+    var(--border-muted) 0%,
+    var(--border-default) 45%,
+    var(--border-muted) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1400ms ease-in-out infinite;
+}
+.skeleton-bar-title { width: 62%; height: 15px; }
+.skeleton-bar-meta { width: 38%; height: 10px; }
+.skeleton-bar-body { width: 88%; height: 10px; }
+/* Staggered, so the set reads as one surface catching the light rather than
+   as four unrelated things blinking in lockstep. */
+.skeleton-row:nth-child(2) .skeleton-bar { animation-delay: 120ms; }
+.skeleton-row:nth-child(3) .skeleton-bar { animation-delay: 240ms; }
+.skeleton-row:nth-child(4) .skeleton-bar { animation-delay: 360ms; }
+@keyframes skeleton-sweep {
+  0%   { background-position: 120% 0; }
+  100% { background-position: -20% 0; }
+}
+
+.thread-list-loading { display: block; }
 
 .tooltip { position: relative; }
 .tooltip::after {
@@ -4135,6 +4422,16 @@ html[data-theme="dark"] .endorse-btn { border-color: rgba(157, 196, 238, 0.30); 
      filters are currently active. */
   .search-filters-toggle { display: inline-flex; }
   .search-bar { top: calc(var(--header-height) + 4px); }
+
+  /* The "…" menu is the one control on this site with NO hover state to fall
+     back on, because there is no hover here at all. It is also the entry point
+     to every row action on the instructor's dashboard. 44px, the WCAG 2.5.5
+     target size, and the same number .msg-back and .chat-panel-close already
+     use on this breakpoint. */
+  .btn-kebab {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 /* --- v3: icon-only nav. Discussions / Search / Messages / Clinic booking /
@@ -4180,6 +4477,26 @@ html[data-theme="dark"] .endorse-btn { border-color: rgba(157, 196, 238, 0.30); 
   }
   body::before { animation: none !important; }
   .spinner { animation-duration: 1200ms !important; animation-iteration-count: infinite !important; }
+  /* THE WAITING VOCABULARY UNDER REDUCED MOTION (§15). The rule here is that
+     the animation stops and the INFORMATION stays: someone who cannot tolerate
+     movement still has to be able to tell a page that is working from a page
+     that has died, and on a site where 15 s waits are normal that is not a
+     decorative concern.
+       * the spinner keeps turning, slowly (the line above) — it is the one
+         signal several waits have, and a frozen spinner reads as a hang;
+       * the net bar stops sliding and becomes a steady full-width line: still
+         plainly "in flight", with nothing moving;
+       * the skeletons stop sweeping and hold their mid-tone, so the shape of
+         what is loading is still there. */
+  .net-bar.is-active .net-bar-fill {
+    animation: none !important;
+    width: 100% !important;
+    transform: none !important;
+  }
+  .skeleton-bar {
+    animation: none !important;
+    background: var(--bg-subtle) !important;
+  }
   .cat-item:hover, .lb-row:hover, .thread-row:hover,
   .btn:hover, .chip:hover, .pill:hover,
   .msg-conv-item:hover, .endorse-btn:hover { transform: none !important; }
