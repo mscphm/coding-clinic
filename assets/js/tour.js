@@ -398,7 +398,8 @@
     /* content first, so the popover is measured at its real height */
     pop.classList.toggle('has-media', !!step.clip);
     if (step.clip) {
-      if (media.getAttribute('data-clip') !== step.clip) {
+      var clipChanged = media.getAttribute('data-clip') !== step.clip;
+      if (clipChanged) {
         var keep = media.querySelector('.tour-loop').outerHTML +
                    media.querySelector('.tour-prog').outerHTML;
         media.innerHTML = CLIPS[step.clip] + keep;
@@ -408,7 +409,9 @@
       }
       media.style.setProperty('--tour-loop', step.loop + 's');
       if (secsEl) secsEl.textContent = step.loop + 's';
-      if (barEl) {                    /* restart the sweep with the clip */
+      /* Only on a real change: place() also runs as a re-measure, and
+         restarting the sweep then would desync it from the clip. */
+      if (clipChanged && barEl) {
         barEl.style.animation = 'none';
         void barEl.offsetWidth;
         barEl.style.animation = '';
@@ -446,6 +449,18 @@
     at = 0;
     root.classList.add('is-open');
     place();
+
+    /* Re-measure once the web fonts land. main.css @imports Inter from Google
+       Fonts, so the first paint uses a fallback face and every heading gets
+       WIDER when Inter arrives. Measured before that swap, the ring is cut to
+       the fallback's width and clips the last letter of the word it is drawn
+       around — which is exactly what it did to "Discussions". */
+    try {
+      if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+        document.fonts.ready.then(function () { if (run) place(); });
+      }
+    } catch (e) { /* no Font Loading API — the first paint stands */ }
+
     trap();
   }
 

@@ -393,7 +393,7 @@
     if (!openCount && !state.myBooking) {
       wrap.appendChild(emptyState('calendar', 'Every slot on this date is taken',
         state.cutoffPassed
-          ? 'Bookings for this week have closed. Post your question as a thread — questions are answered within one working day.'
+          ? 'Bookings for this week have closed. Post your question as a thread instead.'
           : 'Try a later date, or post your question as a thread — most issues are solved there without a slot.'));
     }
     return wrap;

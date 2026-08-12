@@ -319,8 +319,8 @@
       booking_cutoff_time: '23:59',
       max_active_bookings: '1',
       notice_text: 'Welcome! Post concepts, errors and debugging questions freely ' +
-        '\u2014 do not post assignment solution code. Questions are answered within ' +
-        '1 working day. Book a clinic slot only after posting a thread about your issue.',
+        '\u2014 do not post assignment solution code. Book a clinic slot only after ' +
+        'posting a thread about your issue.',
       code_ttl_minutes: '10',
       session_days: '30',
       proficiency_wave: 'baseline',
@@ -458,7 +458,7 @@
           'meant to use both.',
           '',
           '**1. Post here.** Anything about Python, pandas, plotting or stats. I read the',
-          'board every working day and answer within one working day.',
+          'board every working day.',
           '',
           '**2. Book a 20-minute slot.** Thursdays, 13:00-16:00. Post a thread about your',
           'problem *first*, then book from **Clinic booking** and link the thread. That is',

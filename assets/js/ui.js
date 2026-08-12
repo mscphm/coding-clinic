@@ -1149,6 +1149,19 @@
     brand.appendChild(el('span', 'brand-title', siteTitle()));
     inner.appendChild(brand);
 
+    /* The Messages tab shipped hidden so a tenant without the msg flow showed
+       no dead nav entry, and unread.js revealed it only once messages.unread
+       had ANSWERED — a live read, 4-40s. So the tab arrived seconds after the
+       rest of the nav and the header looked broken while it did. Whether the
+       flow exists is known synchronously from its URL, so gate on that: the
+       tab is there from the first paint when there is a backend behind it,
+       and still absent when there is not. unread.js may still call
+       setTabVisible('messages', true) afterwards; that is now a no-op. */
+    var msgTab = tabByKey('messages');
+    if (msgTab && msgTab.hidden && Clinic.api && typeof Clinic.api.hasMsgUrl === 'function') {
+      try { if (Clinic.api.hasMsgUrl()) msgTab.hidden = false; } catch (e) { /* ignore */ }
+    }
+
     var nav = el('nav', 'app-nav');
     nav.setAttribute('aria-label', 'Primary');
     TABS.forEach(function (tab) {

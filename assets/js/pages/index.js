@@ -289,7 +289,7 @@
     if (!box) return;
     clear(box);
     box.appendChild(el('p', 'mb-0', cfg.notice_text ||
-      'Ask freely — questions are answered within 1 working day.'));
+      'Ask freely.'));
   }
 
   /* ------------------------------------------------------------ leaderboard */

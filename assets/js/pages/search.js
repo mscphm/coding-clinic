@@ -1083,7 +1083,7 @@
       var msg = typed
         ? 'Nobody has asked this yet — at least not in these words. Search covers ' +
           'titles, labels and a short excerpt, so try the exact error text, or ask it ' +
-          'and get an answer within one working day.'
+          'or ask it as a new question.'
         : 'Nothing matches these filters.';
       host.appendChild(emptyState(
         typed ? 'No questions match “' + typed + '”' : 'No questions match',
