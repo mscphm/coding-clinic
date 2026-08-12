@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student tour — MOCK · MScPHMxAI Coding Clinic</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%231f6feb' d='M1.25 3A1.75 1.75 0 0 1 3 1.25h10A1.75 1.75 0 0 1 14.75 3v7A1.75 1.75 0 0 1 13 11.75H7.5L4 14.75V11.75H3A1.75 1.75 0 0 1 1.25 10Z'/%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M6.25 5.5 4.25 7.5l2 2M9.75 5.5l2 2-2 2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/css/main.css">
+  <script>
+    (function () {
+      var t = '';
+      try { t = new URLSearchParams(location.search).get('theme') || ''; } catch (e) { t = ''; }
+      if (t !== 'dark' && t !== 'light') {
+        try { t = localStorage.getItem('clinic_theme') || ''; } catch (e) { t = ''; }
+      }
+      if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+
+<!-- =========================================================================
+     STANDALONE MOCK — nothing here is wired into the live app.
+
+     Three coach-mark runs, each tied to the page it teaches:
+
+       Welcome   Discussions      4 marks
+       Post      New discussion   5 marks
+       Book      Clinic booking   4 marks
+
+     Each run fires once, on that page, and is remembered separately. A
+     student who never books never sees the booking marks.
+
+     WHY THE MARKS ONLY POINT AT CERTAIN THINGS
+     Live reads take 4-40s. On Discussions the thread list, categories and
+     leaderboard are all still spinners at first paint, so nothing there can
+     be spotlighted -- the Welcome marks use header chrome and the page
+     heading only. Booking is worse: the whole grid is server data, so that
+     run WAITS for the grid before it starts. The mock reproduces that wait
+     so the behaviour is visible rather than theoretical.
+     ========================================================================= -->
+
+<style>
+/* =========================================================================
+   MOCK CHROME (mk-*) — the dashed control bar. Not product.
+   ========================================================================= */
+.mk-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9000;
+  display:flex;align-items:center;gap:11px;flex-wrap:wrap;justify-content:center;
+  padding:9px 15px;border-radius:var(--radius-pill);
+  background:var(--bg-overlay);border:1.5px dashed var(--nus-orange);
+  box-shadow:var(--shadow-lg);font-family:var(--font-sans);max-width:94vw}
+.mk-tag{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--nus-orange)}
+.mk-group{display:flex;align-items:center;gap:5px}
+.mk-label{font-size:10px;font-weight:700;color:var(--fg-subtle);text-transform:uppercase;
+  letter-spacing:.07em}
+.mk-btn{font:inherit;font-size:12px;font-weight:600;padding:5px 11px;cursor:pointer;
+  border-radius:var(--radius-pill);border:1px solid var(--btn-border);
+  background:var(--btn-bg);color:var(--btn-fg);transition:all .15s ease}
+.mk-btn:hover{background:var(--btn-hover-bg)}
+.mk-btn.on{background:var(--nus-navy);color:#fff;border-color:var(--nus-navy)}
+.mk-sep{width:1px;height:19px;background:var(--border-default)}
+.mk-state{font-size:11px;font-weight:700;font-family:var(--font-mono);
+  padding:4px 9px;border-radius:var(--radius-pill);background:var(--bg-inset);
+  border:1px solid var(--border-muted);color:var(--fg-muted);white-space:nowrap}
+body.is-embed .mk-bar{display:none}
+
+.mk-phone{position:fixed;inset:0;z-index:8000;display:none;place-items:center;
+  background:var(--bg-subtle)}
+body.mk-phone-on .mk-phone{display:grid}
+body.mk-phone-on .mk-stage,body.mk-phone-on .coach-root{display:none!important}
+.mk-phone-frame{width:375px;height:760px;max-height:88vh;border-radius:32px;overflow:hidden;
+  border:10px solid #12233a;box-shadow:0 30px 80px rgba(0,61,124,.35);background:var(--bg-canvas)}
+.mk-phone-frame iframe{width:100%;height:100%;border:0;display:block}
+
+/* =========================================================================
+   THE THREE FAKE PAGES — real class names, real CSS
+   ========================================================================= */
+.mk-stage{min-height:100vh;padding-bottom:120px}
+.page{display:none}
+.page.is-on{display:block}
+.mk-fab{position:fixed;right:24px;bottom:96px;z-index:40;width:56px;height:56px;
+  border-radius:50%;border:0;cursor:pointer;display:grid;place-items:center;
+  background:var(--grad-orange);color:#fff;box-shadow:var(--shadow-orange-lift)}
+.mk-fab-badge{position:absolute;top:-2px;right:-2px;min-width:20px;height:20px;padding:0 5px;
+  border-radius:10px;background:var(--nus-navy);color:#fff;font-size:11px;font-weight:700;
+  display:grid;place-items:center;border:2px solid var(--bg-canvas)}
+
+/* the help button — this one IS product */
+.help-wrap{position:relative}
+.help-btn{width:34px;height:34px;padding:0;border-radius:50%;cursor:pointer;
+  display:grid;place-items:center;font:inherit;font-size:15px;font-weight:800;
+  border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--accent);
+  transition:all .18s ease}
+.help-btn:hover{background:var(--nus-navy);color:#fff;border-color:var(--nus-navy)}
+.help-btn:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px}
+.help-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:60;min-width:210px;
+  padding:6px;border-radius:var(--radius-lg);background:var(--bg-overlay);
+  border:1px solid var(--border-default);box-shadow:var(--shadow-card);display:none}
+.help-menu.is-open{display:block}
+.help-head{font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--fg-subtle);padding:7px 10px 5px}
+.help-item{display:flex;align-items:center;gap:9px;width:100%;font:inherit;font-size:13px;
+  font-weight:600;text-align:left;padding:8px 10px;border:0;border-radius:var(--radius);
+  background:none;color:var(--fg-default);cursor:pointer;transition:all .13s ease}
+.help-item:hover{background:var(--accent-subtle);color:var(--fg-heading)}
+.help-item b{display:grid;place-items:center;width:20px;height:20px;border-radius:6px;
+  background:var(--accent-subtle);color:var(--accent);font-size:10px;font-weight:800;flex:none}
+.help-item i{margin-left:auto;font-style:normal;font-size:9px;font-weight:800;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--success)}
+
+/* --- composer (new.html) --- */
+.mk-comp{max-width:660px}
+.md-bar{display:flex;align-items:center;gap:5px;padding:6px 8px;
+  border:1px solid var(--border-default);border-bottom:0;
+  border-radius:var(--radius) var(--radius) 0 0;background:var(--bg-inset)}
+.md-b{font-size:11px;font-weight:700;font-family:var(--font-mono);padding:4px 9px;
+  border-radius:5px;background:var(--bg-overlay);border:1px solid var(--border-default);
+  color:var(--fg-muted);cursor:pointer}
+.md-b:hover{border-color:var(--nus-orange);color:var(--nus-orange)}
+.md-b.pic{margin-left:auto;font-family:var(--font-sans);display:flex;align-items:center;gap:5px}
+.mk-body{border-radius:0 0 var(--radius) var(--radius);border:1px solid var(--border-default);
+  background:var(--bg-overlay);padding:11px 13px;min-height:130px;
+  font-family:var(--font-mono);font-size:12.5px;line-height:1.75;color:var(--fg-default)}
+.mk-tray{display:flex;gap:8px;margin-top:8px}
+.mk-thumb{width:64px;height:44px;border-radius:6px;border:1px solid var(--border-default);
+  background:linear-gradient(135deg,var(--accent-subtle),var(--neutral-muted));
+  display:grid;place-items:center;color:var(--fg-subtle);font-size:9px;font-weight:700}
+
+/* --- booking (booking.html) --- */
+.mk-book{max-width:660px}
+.slot-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.slot{text-align:center;font-size:11.5px;font-weight:600;padding:11px 6px;border-radius:10px;
+  border:1px solid var(--border-default);background:var(--bg-overlay);color:var(--fg-default)}
+.slot.taken{opacity:.4;text-decoration:line-through;color:var(--fg-subtle)}
+.slot.closed{background:var(--neutral-muted);color:var(--fg-subtle);border-style:dashed}
+.slot.sel{border-color:var(--nus-orange);box-shadow:0 0 0 3px var(--focus-ring)}
+.mk-cut{display:flex;align-items:center;gap:8px;padding:10px 13px;border-radius:var(--radius);
+  background:var(--attention-subtle);border:1px solid var(--attention-emphasis);
+  font-size:12.5px;color:var(--attention);font-weight:600}
+.mk-pick{display:flex;align-items:center;gap:9px;padding:10px 13px;font-size:13px;
+  border-radius:var(--radius);border:1px solid var(--border-default);
+  background:var(--bg-overlay);box-shadow:var(--shadow-sm)}
+
+/* =========================================================================
+   COACH MARKS
+   ========================================================================= */
+.coach-root{position:fixed;inset:0;z-index:5000;display:none}
+.coach-root.is-open{display:block}
+.coach-hole{position:absolute;border-radius:var(--radius);pointer-events:none;
+  box-shadow:0 0 0 9999px rgba(0,26,51,.58),0 0 0 3px var(--nus-orange);
+  transition:all .36s cubic-bezier(.2,.9,.3,1)}
+.coach-hole.round{border-radius:50%}
+
+.coach-pop{position:absolute;width:min(272px,calc(100vw - 28px));
+  border-radius:var(--radius-lg);background:var(--bg-overlay);
+  box-shadow:var(--shadow-card);border:1px solid var(--border-muted);
+  font-family:var(--font-sans);transition:all .36s cubic-bezier(.2,.9,.3,1)}
+.coach-pop.has-media{width:min(320px,calc(100vw - 28px))}
+.coach-arrow{position:absolute;width:11px;height:11px;background:var(--bg-overlay);
+  border:1px solid var(--border-muted);transform:rotate(45deg)}
+.coach-pop.below .coach-arrow{top:-6px;border-right:0;border-bottom:0}
+.coach-pop.above .coach-arrow{bottom:-6px;border-left:0;border-top:0}
+
+.coach-in{padding:14px 16px 15px;position:relative;z-index:1}
+.coach-title{margin:0 0 5px;font-size:14.5px;font-weight:800;color:var(--fg-heading)}
+.coach-text{margin:0;font-size:13px;line-height:1.6;color:var(--fg-muted)}
+.coach-text code{font-family:var(--font-mono);font-size:.88em;padding:1px 5px;border-radius:4px;
+  background:var(--accent-subtle);color:var(--fg-heading);font-weight:500}
+.coach-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:0 16px 14px;position:relative;z-index:1}
+.coach-dots{display:flex;gap:5px}
+.coach-dot{width:6px;height:6px;border-radius:50%;background:var(--border-default)}
+.coach-dot.on{width:18px;border-radius:3px;background:var(--nus-orange)}
+.coach-nav{display:flex;gap:6px;align-items:center}
+.coach-skip{font:inherit;font-size:12px;font-weight:600;background:none;border:0;cursor:pointer;
+  color:var(--fg-subtle);padding:5px 8px;border-radius:var(--radius)}
+.coach-skip:hover{background:var(--btn-hover-bg);color:var(--fg-default)}
+
+/* --- the small clip some marks carry ------------------------------------
+   Only three marks have one: the two that show a before/after you cannot
+   point at (markdown rendering, a screenshot landing in the tray) and the
+   slot legend. Everything else is pointing at the real control, which is
+   the whole reason for using coach marks instead of a slideshow.
+   ------------------------------------------------------------------------ */
+.coach-media{display:none;position:relative;margin:12px 16px 0;height:112px;
+  border-radius:var(--radius);background:var(--bg-inset);
+  border:1px solid var(--border-muted);overflow:hidden}
+.coach-pop.has-media .coach-media{display:block}
+.cm{position:absolute;inset:0;display:none;place-items:center}
+.cm.is-live{display:grid}
+
+/* loop indicator — is the clip actually running, and when does it repeat */
+.cm-prog{position:absolute;left:0;right:0;bottom:0;height:2px;z-index:4;
+  background:var(--border-muted);overflow:hidden}
+.cm-prog i{display:block;height:100%;width:100%;transform-origin:left center;
+  transform:scaleX(0);background:var(--grad-orange)}
+.coach-root.is-open .cm-prog i{animation:sweep var(--loop,8s) linear infinite}
+@keyframes sweep{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.cm-loop{position:absolute;left:7px;bottom:7px;z-index:4;display:flex;align-items:center;gap:4px;
+  padding:2px 7px;border-radius:var(--radius-pill);background:var(--bg-overlay);
+  border:1px solid var(--border-muted);font-size:8.5px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--fg-subtle);opacity:.9}
+.cm-loop svg{display:block;color:var(--nus-orange)}
+.coach-root.is-open .cm-loop svg{animation:spin var(--loop,8s) linear infinite}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.loop-still{display:none}
+
+/* clip 1 — raw markdown flips to rendered */
+.cmA{width:220px}
+.cmA-box{position:relative;height:76px}
+.cmA-raw,.cmA-out{position:absolute;left:0;right:0;top:0;font-size:10px;line-height:1.65}
+.cmA-raw{font-family:var(--font-mono);color:var(--fg-muted)}
+.is-live .cmA-raw{animation:aRaw 8s ease-in-out infinite}
+.is-live .cmA-out{animation:aOut 8s ease-in-out infinite}
+@keyframes aRaw{0%,42%{opacity:1}52%,92%{opacity:0}100%{opacity:1}}
+@keyframes aOut{0%,44%{opacity:0}54%,92%{opacity:1}100%{opacity:0}}
+.cmA-h{font-size:11.5px;font-weight:800;color:var(--fg-heading);margin:0 0 4px;
+  padding-bottom:3px;border-bottom:1px solid var(--border-muted)}
+.cmA-pre{font-family:var(--font-mono);font-size:9.5px;background:var(--bg-overlay);
+  border:1px solid var(--border-muted);border-radius:5px;padding:5px 7px;margin:0}
+.tk-k{color:var(--nus-orange);font-weight:600}
+.tk-f{color:var(--accent);font-weight:600}
+.tk-s{color:var(--success);font-weight:500}
+.tk-h{color:var(--fg-subtle)}
+
+/* clip 2 — a screenshot drops into the tray */
+.cmB{width:210px;position:relative;height:84px}
+.cmB-zone{position:absolute;inset:0;border-radius:8px;border:1.5px dashed var(--border-default);
+  display:grid;place-items:center;font-size:9.5px;font-weight:600;color:var(--fg-subtle)}
+.is-live .cmB-zone{animation:bZone 7.5s ease-in-out infinite}
+@keyframes bZone{0%,26%{border-color:var(--border-default);background:transparent}
+  36%,60%{border-color:var(--nus-orange);background:var(--accent-subtle)}
+  70%,100%{border-color:var(--border-default);background:transparent}}
+.cmB-shot{position:absolute;left:50%;width:56px;height:38px;margin-left:-28px;border-radius:5px;
+  border:1px solid var(--border-default);box-shadow:var(--shadow-md);
+  background:linear-gradient(135deg,var(--accent-subtle),var(--neutral-muted));
+  display:grid;place-items:center;font-size:8px;font-weight:700;color:var(--fg-subtle);opacity:0}
+.is-live .cmB-shot{animation:bShot 7.5s cubic-bezier(.4,0,.2,1) infinite}
+@keyframes bShot{0%{opacity:0;top:-34px}
+  16%{opacity:1;top:-14px}
+  44%{opacity:1;top:23px}
+  56%{opacity:1;top:23px}
+  66%,88%{opacity:1;top:46px}
+  96%,100%{opacity:0;top:46px}}
+.cmB-tray{position:absolute;left:0;right:0;bottom:0;height:26px;border-radius:6px;
+  background:var(--bg-overlay);border:1px solid var(--border-muted);opacity:0}
+.is-live .cmB-tray{animation:bTray 7.5s ease-in-out infinite}
+@keyframes bTray{0%,54%{opacity:0}64%,90%{opacity:1}100%{opacity:0}}
+
+/* clip 3 — what the slot colours mean */
+.cmC{width:212px;display:grid;gap:7px}
+.cmC-row{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.cmC-s{text-align:center;font-size:9px;font-weight:600;padding:6px 2px;border-radius:6px;
+  border:1px solid var(--border-default);background:var(--bg-overlay);color:var(--fg-default)}
+.cmC-s.t{opacity:.4;text-decoration:line-through;color:var(--fg-subtle)}
+.cmC-s.c{background:var(--neutral-muted);color:var(--fg-subtle);border-style:dashed}
+.is-live .cmC-s.p{animation:cPick 6.5s ease-in-out infinite}
+@keyframes cPick{0%,34%{border-color:var(--border-default);box-shadow:none;transform:scale(1)}
+  46%,88%{border-color:var(--nus-orange);box-shadow:0 0 0 3px var(--focus-ring);transform:scale(1.06)}
+  100%{border-color:var(--border-default);box-shadow:none;transform:scale(1)}}
+.cmC-k{display:flex;justify-content:center;gap:9px;font-size:8px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--fg-subtle)}
+.cmC-k span{display:flex;align-items:center;gap:3px}
+.cmC-k i{width:7px;height:7px;border-radius:2px;display:block}
+
+/* =========================================================================
+   REDUCED MOTION — nothing in main.css honours it today.
+   Marks jump instead of gliding; clips freeze on the frame that teaches
+   (rendered markdown, the screenshot already in the tray); the loop
+   indicator stops claiming anything is running.
+   ========================================================================= */
+@media (prefers-reduced-motion:reduce){
+  .coach-hole,.coach-pop{transition:none!important}
+  .cm.is-live *{animation:none!important}
+  .cmA-raw,.cmB-zone{opacity:0!important}
+  .cmA-out,.cmB-shot,.cmB-tray{opacity:1!important;transform:none!important}
+  .cmB-shot{top:46px!important}
+  .cmC-s.p{border-color:var(--nus-orange)!important;box-shadow:0 0 0 3px var(--focus-ring)!important}
+  .cm-prog{display:none!important}
+  .cm-loop svg{display:none!important;animation:none!important}
+  .loop-cycle{display:none!important}
+  .loop-still{display:inline!important}
+}
+body.rm .coach-hole,body.rm .coach-pop{transition:none!important}
+body.rm .cm.is-live *{animation:none!important}
+body.rm .cmA-raw,body.rm .cmB-zone{opacity:0!important}
+body.rm .cmA-out,body.rm .cmB-shot,body.rm .cmB-tray{opacity:1!important;transform:none!important}
+body.rm .cmB-shot{top:46px!important}
+body.rm .cmC-s.p{border-color:var(--nus-orange)!important;box-shadow:0 0 0 3px var(--focus-ring)!important}
+body.rm .cm-prog{display:none!important}
+body.rm .cm-loop svg{display:none!important;animation:none!important}
+body.rm .loop-cycle{display:none!important}
+body.rm .loop-still{display:inline!important}
+
+@media (max-width:600px){
+  .coach-in{padding:12px 14px 13px}
+  .coach-foot{padding:0 14px 12px}
+  .coach-title{font-size:13.5px}
+  .coach-text{font-size:12.5px}
+  .coach-media{height:100px;margin:10px 14px 0}
+}
+</style>
+</head>
+<body>
+
+<div class="mk-stage">
+
+  <!-- ===================== SHARED HEADER ===================== -->
+  <div class="app-header">
+    <div class="app-header-inner">
+      <a class="brand" href="#" onclick="return false">
+        <span class="brand-mark" style="display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:var(--grad-navy);color:#fff;font-weight:800;font-size:12px">CC</span>
+        <span class="brand-title">MScPHMxAI Coding Clinic</span>
+      </a>
+      <nav class="app-nav" aria-label="Primary">
+        <a class="app-nav-item active" id="nav-disc" data-tab="discussions" href="#" onclick="return false"><span class="app-nav-label">Discussions</span></a>
+        <a class="app-nav-item" data-tab="search" href="#" onclick="return false"><span class="app-nav-label">Search</span></a>
+        <a class="app-nav-item" id="nav-book" data-tab="booking" href="#" onclick="return false"><span class="app-nav-label">Clinic booking</span></a>
+      </nav>
+      <div class="header-actions">
+        <div class="help-wrap">
+          <button class="help-btn" id="help-btn" type="button" aria-haspopup="true"
+                  aria-expanded="false" title="Replay a tutorial" aria-label="Replay a tutorial">?</button>
+          <div class="help-menu" id="help-menu" role="menu">
+            <div class="help-head">Replay a tutorial</div>
+            <button class="help-item" type="button" role="menuitem" data-run="welcome"><b>1</b>Getting around<i id="chk-welcome"></i></button>
+            <button class="help-item" type="button" role="menuitem" data-run="post"><b>2</b>How to post<i id="chk-post"></i></button>
+            <button class="help-item" type="button" role="menuitem" data-run="book"><b>3</b>How to book<i id="chk-book"></i></button>
+          </div>
+        </div>
+        <button class="mk-btn" id="theme-btn" type="button">Theme</button>
+        <span class="avatar" style="display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--grad-navy);color:#fff;font-size:12px;font-weight:700">XC</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== PAGE 1 — DISCUSSIONS ===================== -->
+  <div class="page is-on" id="page-disc">
+    <div class="container layout">
+      <aside class="sidebar">
+        <section class="side-section">
+          <h2 class="side-title">Categories</h2>
+          <div class="empty-state" style="padding:10px 0"><span class="spinner"></span></div>
+        </section>
+        <section class="side-section">
+          <h2 class="side-title">Clinic notice</h2>
+          <div class="empty-state" style="padding:10px 0"><span class="spinner"></span></div>
+        </section>
+      </aside>
+      <main class="main">
+        <div class="page-head">
+          <h1 id="d-title">Discussions</h1>
+          <a class="btn btn-primary" id="d-new" href="#" onclick="return false">New discussion</a>
+        </div>
+        <div class="thread-list" style="min-height:220px;display:grid;place-items:center">
+          <div class="empty-state"><span class="spinner"></span></div>
+        </div>
+        <p class="field-hint" style="text-align:center;max-width:430px;margin:0 auto">
+          The spinner is deliberate — it is the 4–40&nbsp;s live read. Nothing inside it
+          can be spotlighted, which is why the Welcome marks stay on the chrome.
+        </p>
+      </main>
+    </div>
+  </div>
+
+  <!-- ===================== PAGE 2 — NEW DISCUSSION ===================== -->
+  <div class="page" id="page-new">
+    <div class="container layout layout-reverse">
+      <aside class="sidebar">
+        <section class="side-section">
+          <h2 class="side-title">How to ask</h2>
+          <ul style="list-style:disc;padding-left:18px;font-size:13px;color:var(--fg-muted);line-height:1.8">
+            <li>One question per thread</li>
+            <li>Say what you expected</li>
+            <li>Paste the actual error</li>
+          </ul>
+        </section>
+      </aside>
+      <main class="main mk-comp">
+        <div class="page-head"><h1>Start a new discussion</h1></div>
+
+        <div class="field">
+          <label class="field-label" for="n-title">Title <span class="req">*</span></label>
+          <input class="input" id="n-title" type="text" value="Pandas merge drops rows" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="n-cat">Category <span class="req">*</span></label>
+          <select class="select" id="n-cat"><option>Python</option><option>Stats</option><option>Data</option></select>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Body <span class="req">*</span></span>
+          <div class="md-bar" id="n-tools">
+            <span class="md-b">###</span>
+            <span class="md-b">```</span>
+            <span class="md-b">**B**</span>
+            <span class="md-b pic" id="n-pic">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M1.75 2.5h12.5a.25.25 0 0 1 .25.25v10.5a.25.25 0 0 1-.25.25H1.75a.25.25 0 0 1-.25-.25V2.75a.25.25 0 0 1 .25-.25ZM0 2.75C0 1.78.78 1 1.75 1h12.5c.97 0 1.75.78 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm5.5 2.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm7.5 5.75-3.5-4.5-2.5 3-1.5-1.75L3 11.5h10Z"/></svg>
+              Add image
+            </span>
+          </div>
+          <div class="mk-body" id="n-body">### What I tried<br>```python<br>out = df.merge(ref, on="id")<br>```</div>
+          <div class="mk-tray"><div class="mk-thumb">error.png</div></div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:18px">
+          <button class="btn btn-primary" id="n-post" type="button">Post discussion</button>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ===================== PAGE 3 — CLINIC BOOKING ===================== -->
+  <div class="page" id="page-book">
+    <div class="container layout">
+      <aside class="sidebar">
+        <section class="side-section">
+          <h2 class="side-title">How the clinic works</h2>
+          <ul style="list-style:disc;padding-left:18px;font-size:13px;color:var(--fg-muted);line-height:1.8">
+            <li>Come with your thread</li>
+            <li>One active booking at a time</li>
+          </ul>
+        </section>
+      </aside>
+      <main class="main mk-book">
+        <div class="page-head"><h1>Clinic booking</h1></div>
+
+        <!-- the wait is the point: this whole page is server data -->
+        <div id="b-loading" class="empty-state" style="min-height:240px;display:grid;place-items:center">
+          <span class="spinner"></span>
+        </div>
+
+        <div id="b-ready" hidden>
+          <div class="field">
+            <span class="field-label">Which thread is this about?</span>
+            <div class="mk-pick" id="b-thread">
+              <span style="color:var(--fg-subtle);font-size:11px">Thread</span>
+              <span style="font-weight:600">Pandas merge drops rows</span>
+              <span style="margin-left:auto;color:var(--fg-subtle)">▾</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Available slots</span>
+            <div class="slot-g" id="b-grid">
+              <div class="slot">Tue 10:00</div>
+              <div class="slot taken">Tue 10:30</div>
+              <div class="slot closed">Tue 11:00</div>
+              <div class="slot taken">Wed 14:00</div>
+              <div class="slot sel">Wed 14:30</div>
+              <div class="slot">Wed 15:00</div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;margin:16px 0">
+            <button class="btn btn-primary" id="b-confirm" type="button">Confirm booking</button>
+          </div>
+
+          <div class="mk-cut" id="b-cutoff">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0Zm.75 4.25a.75.75 0 0 0-1.5 0v4c0 .28.16.54.41.67l2.5 1.25a.75.75 0 1 0 .68-1.34L8.75 7.79Z"/></svg>
+            Bookings close Wednesday 11:59 pm for that week.
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <button class="mk-fab" id="d-fab" type="button" aria-label="Messages">
+    <svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M1.75 2h12.5c.97 0 1.75.78 1.75 1.75v8.5A1.75 1.75 0 0 1 14.25 14H1.75A1.75 1.75 0 0 1 0 12.25v-8.5C0 2.78.78 2 1.75 2Zm0 1.5a.25.25 0 0 0-.25.25v.32l6.5 3.79 6.5-3.79v-.32a.25.25 0 0 0-.25-.25Zm12.75 2.3-6.12 3.57a.75.75 0 0 1-.76 0L1.5 5.8v6.45c0 .14.11.25.25.25h12.5a.25.25 0 0 0 .25-.25Z"/></svg>
+    <span class="mk-fab-badge">2</span>
+  </button>
+</div>
+
+<!-- ===================== COACH MARK LAYER ===================== -->
+<div class="coach-root" id="coach" role="dialog" aria-modal="true" aria-labelledby="c-title">
+  <div class="coach-hole" id="c-hole"></div>
+  <div class="coach-pop" id="c-pop">
+    <span class="coach-arrow" id="c-arrow"></span>
+
+    <div class="coach-media" id="c-media">
+      <!-- clip A — markdown renders -->
+      <div class="cm" data-cm="md">
+        <div class="cmA">
+          <div class="cmA-box">
+            <div class="cmA-raw">
+              <span class="tk-h">###</span> What I tried<br>
+              <span class="tk-h">```python</span><br>
+              out = df.merge(ref, on="id")<br>
+              <span class="tk-h">```</span>
+            </div>
+            <div class="cmA-out">
+              <p class="cmA-h">What I tried</p>
+              <pre class="cmA-pre"><span class="tk-f">out</span> = df.<span class="tk-f">merge</span>(ref, <span class="tk-k">on</span>=<span class="tk-s">"id"</span>)</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- clip B — a screenshot lands in the tray -->
+      <div class="cm" data-cm="img">
+        <div class="cmB">
+          <div class="cmB-zone">paste or drop</div>
+          <div class="cmB-shot">error.png</div>
+          <div class="cmB-tray"></div>
+        </div>
+      </div>
+      <!-- clip C — what the slot colours mean -->
+      <div class="cm" data-cm="slots">
+        <div class="cmC">
+          <div class="cmC-row">
+            <div class="cmC-s">10:00</div><div class="cmC-s t">10:30</div><div class="cmC-s c">11:00</div>
+          </div>
+          <div class="cmC-row">
+            <div class="cmC-s t">14:00</div><div class="cmC-s p">14:30</div><div class="cmC-s">15:00</div>
+          </div>
+          <div class="cmC-k">
+            <span><i style="background:var(--bg-overlay);border:1px solid var(--border-default)"></i>open</span>
+            <span><i style="background:var(--border-default)"></i>taken</span>
+            <span><i style="background:var(--neutral-muted);border:1px dashed var(--fg-subtle)"></i>closed</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="cm-loop" aria-hidden="true">
+        <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2.5a5.5 5.5 0 1 0 5.24 3.83.75.75 0 0 1 1.43-.46A7 7 0 1 1 8 1a.75.75 0 0 1 0 1.5Z"/><path d="M8.72.22a.75.75 0 0 0-1.06 1.06l1.22 1.22-1.22 1.22a.75.75 0 1 0 1.06 1.06l1.75-1.75a.75.75 0 0 0 0-1.06Z"/></svg>
+        <span class="loop-cycle">loops <b id="c-secs">8s</b></span>
+        <span class="loop-still">still</span>
+      </div>
+      <div class="cm-prog" aria-hidden="true"><i id="c-bar"></i></div>
+    </div>
+
+    <div class="coach-in">
+      <h3 class="coach-title" id="c-title">Title</h3>
+      <p class="coach-text" id="c-text">Text</p>
+    </div>
+    <div class="coach-foot">
+      <div class="coach-dots" id="c-dots"></div>
+      <div class="coach-nav">
+        <button class="coach-skip" type="button" id="c-skip">Skip</button>
+        <button class="btn btn-sm btn-primary" type="button" id="c-next">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MOCK CONTROLS ===================== -->
+<div class="mk-bar">
+  <span class="mk-tag">Mock</span>
+  <div class="mk-sep"></div>
+  <div class="mk-group">
+    <span class="mk-label">Page</span>
+    <button class="mk-btn on" type="button" data-page="disc">Discussions</button>
+    <button class="mk-btn" type="button" data-page="new">New discussion</button>
+    <button class="mk-btn" type="button" data-page="book">Clinic booking</button>
+  </div>
+  <div class="mk-sep"></div>
+  <div class="mk-group">
+    <span class="mk-state" id="mk-seen">seen: none</span>
+    <button class="mk-btn" type="button" id="mk-reset">Reset + reload</button>
+  </div>
+  <div class="mk-sep"></div>
+  <button class="mk-btn" type="button" id="mk-rm">Reduced motion</button>
+  <button class="mk-btn" type="button" id="mk-phone">Phone</button>
+</div>
+
+<div class="mk-phone"><div class="mk-phone-frame"><iframe id="mk-frame" title="Phone preview"></iframe></div></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var qs = new URLSearchParams(location.search);
+  if (qs.get('embed') === '1') document.body.classList.add('is-embed');
+
+  /* ====================================================================
+     THE THREE RUNS
+
+     Each mark names a real element on its page. Nothing here points at
+     anything the server has to deliver, except the booking run, which is
+     gated on the grid arriving (see showPage).
+
+     media/loop are only set on the three marks that need a before-and-
+     after you cannot point at.
+     ==================================================================== */
+  var RUNS = {
+    welcome: {
+      label: 'Getting around', page: 'disc',
+      steps: [
+        { sel: '#d-title', title: 'This is the board',
+          text: 'Every question in the cohort lives here. One question per thread — ' +
+                'three problems means three threads.' },
+        { sel: '#d-new', title: 'Start a question here',
+          text: 'This button is on every page of the board.' },
+        { sel: '#d-fab', round: true, title: 'Messages',
+          text: 'Your direct line. It follows you across pages and shows a badge ' +
+                'when something is waiting.' },
+        { sel: '#help-btn', round: true, title: 'Lost? Come back here',
+          text: 'Any of these walkthroughs can be replayed from this button, any time.' }
+      ]
+    },
+
+    post: {
+      label: 'How to post', page: 'new',
+      steps: [
+        { sel: '#n-title', title: 'Say what is actually wrong',
+          text: '"Pandas merge drops rows" gets read. "Help please" does not.' },
+        { sel: '#n-cat', title: 'Pick a category',
+          text: 'It decides who sees your question first.' },
+        { sel: '#n-tools', title: 'Headings and code fences',
+          text: 'Type ### for a heading and wrap code in ```python. Your indentation ' +
+                'survives and the syntax gets coloured. These buttons do both for you.',
+          media: 'md', loop: 8 },
+        { sel: '#n-pic', title: 'Add a screenshot',
+          text: 'Paste an image straight into the box, drag one on top of it, or use ' +
+                'this button. A picture of the actual error beats describing it.',
+          media: 'img', loop: 7.5 },
+        { sel: '#n-post', title: 'Post it',
+          text: 'It goes on the board straight away, and anyone in the cohort can answer.' }
+      ]
+    },
+
+    book: {
+      label: 'How to book', page: 'book',
+      steps: [
+        { sel: '#b-thread', title: 'A booking needs a thread',
+          text: 'Every slot is attached to one of your own questions, so it gets read ' +
+                'before you arrive. No thread yet? Post first.' },
+        { sel: '#b-grid', title: 'Pick an open slot',
+          text: 'Twenty minutes, one to one. Struck-through slots are taken and dashed ' +
+                'ones are closed for that week.',
+          media: 'slots', loop: 6.5 },
+        { sel: '#b-confirm', title: 'Confirm',
+          text: 'The slot turns green and a confirmation email follows.' },
+        { sel: '#b-cutoff', title: 'One booking at a time',
+          text: 'Cancel yours if plans change — it frees the slot for someone else.' }
+      ]
+    }
+  };
+  var ORDER = ['welcome', 'post', 'book'];
+
+  /* ====================================================================
+     HAS THIS STUDENT SEEN IT?
+
+     One key holding a version per run: {"welcome":1,"post":1}. A run fires
+     on its own page only while its number is behind TOUR_VERSION, so a
+     student who never opens booking never sees the booking marks, and
+     finishing one run does not silence the others.
+
+     Two rules, both easy to get wrong:
+
+       1. Skip counts as seen. Somebody who skips has decided. If only the
+          last "Done" wrote the flag, the marks would return on every visit
+          and become the worst thing about the site. Skip, Esc and Done all
+          go through one exit.
+
+       2. Storage failure must not become nagging. localStorage can throw
+          in a private window, so it falls back to sessionStorage and then
+          to a variable. Worst case a run repeats once per session, never
+          once per page load.
+
+     Bumping TOUR_VERSION replays everything once for everybody. No API
+     call, no workbook column, no flow re-import.
+     ==================================================================== */
+  var TOUR_VERSION = 1;
+  var LS = 'clinic_tour_seen';
+  var mem = {};
+
+  function parse(raw) {
+    if (raw === null) return {};                /* readable and empty */
+    try { return JSON.parse(raw) || {}; } catch (e) { return {}; }
+  }
+  /* The fallback order is about REACHABILITY, not emptiness. If
+     localStorage answers at all -- even with null -- that answer is the
+     truth and `mem` must not override it, or clearing site data mid-session
+     would resurrect the old flags from memory and the runs would stay
+     silenced. `mem` is only consulted when both stores actually throw. */
+  function readSeen() {
+    try { return parse(localStorage.getItem(LS)); } catch (e) { /* blocked */ }
+    try { return parse(sessionStorage.getItem(LS)); } catch (e) { /* blocked */ }
+    return mem;
+  }
+  function markSeen(key) {
+    var all = readSeen();
+    all[key] = TOUR_VERSION;
+    mem = all;
+    var s = JSON.stringify(all);
+    try { localStorage.setItem(LS, s); paintSeen(); return; } catch (e) { /* blocked */ }
+    try { sessionStorage.setItem(LS, s); } catch (e) { /* blocked */ }
+    paintSeen();
+  }
+  function isSeen(key) { return (readSeen()[key] || 0) >= TOUR_VERSION; }
+
+  /* ====================================================================
+     Coach marks
+     ==================================================================== */
+  var root = $('coach'), pop = $('c-pop'), hole = $('c-hole');
+  var run = null, key = '', at = 0;
+
+  function place() {
+    var step = run.steps[at];
+    var t = document.querySelector(step.sel);
+    if (!t) return;
+
+    t.scrollIntoView({ block: 'center', behavior: 'auto' });
+    var r = t.getBoundingClientRect(), pad = 6;
+
+    hole.className = 'coach-hole' + (step.round ? ' round' : '');
+    hole.style.left = (r.left - pad) + 'px';
+    hole.style.top = (r.top - pad) + 'px';
+    hole.style.width = (r.width + pad * 2) + 'px';
+    hole.style.height = (r.height + pad * 2) + 'px';
+
+    /* content first, so the popover is measured at its real height */
+    pop.classList.toggle('has-media', !!step.media);
+    $('c-title').textContent = step.title;
+    $('c-text').innerHTML = step.text
+      .replace(/```python/g, '<code>```python</code>')
+      .replace(/###/g, '<code>###</code>');
+
+    [].forEach.call(document.querySelectorAll('.cm'), function (el) {
+      el.classList.toggle('is-live', !!step.media && el.getAttribute('data-cm') === step.media);
+    });
+    if (step.media) {
+      $('c-media').style.setProperty('--loop', step.loop + 's');
+      $('c-secs').textContent = step.loop + 's';
+      var bar = $('c-bar');
+      bar.style.animation = 'none';
+      void bar.offsetWidth;              /* restart the sweep with the clip */
+      bar.style.animation = '';
+    }
+
+    var dots = $('c-dots');
+    dots.innerHTML = '';
+    run.steps.forEach(function (_, n) {
+      var d = document.createElement('span');
+      d.className = 'coach-dot' + (n === at ? ' on' : '');
+      dots.appendChild(d);
+    });
+    $('c-next').textContent = at === run.steps.length - 1 ? 'Done' : 'Next';
+
+    var pw = pop.offsetWidth, ph = pop.offsetHeight, gap = 14;
+    var below = r.bottom + gap + ph <= window.innerHeight - 8;
+    pop.classList.toggle('below', below);
+    pop.classList.toggle('above', !below);
+    var top = below ? r.bottom + gap : r.top - ph - gap;
+    var left = r.left + r.width / 2 - pw / 2;
+    left = Math.max(12, Math.min(left, window.innerWidth - pw - 12));
+    pop.style.top = Math.max(8, Math.min(top, window.innerHeight - ph - 8)) + 'px';
+    pop.style.left = left + 'px';
+
+    /* the arrow tracks the target, not the popover's centre */
+    var ax = Math.max(12, Math.min(r.left + r.width / 2 - left - 5.5, pw - 23));
+    $('c-arrow').style.left = ax + 'px';
+  }
+
+  function start(k) {
+    run = RUNS[k]; key = k; at = 0;
+    root.classList.add('is-open');
+    place();
+    trap();
+  }
+
+  /* Every way out lands here: one exit, one write. */
+  function finish() {
+    if (key) markSeen(key);
+    root.classList.remove('is-open');
+    [].forEach.call(document.querySelectorAll('.cm'), function (el) {
+      el.classList.remove('is-live');
+    });
+    run = null; key = '';
+    untrap();
+  }
+
+  /* Both buttons guard on `run`. Without it a second click landing after
+     the last one -- a double tap, or Enter still held on the focused
+     button -- throws on run.steps and leaves the scrim stuck on screen. */
+  $('c-next').addEventListener('click', function () {
+    if (!run) return;
+    if (at === run.steps.length - 1) finish();
+    else { at++; place(); }
+  });
+  $('c-skip').addEventListener('click', function () { if (run) finish(); });
+  window.addEventListener('resize', function () { if (run) place(); });
+
+  /* focus trap — ui.js's confirmModal lets Tab walk out of the dialog */
+  var on = false, restore = null;
+  function onKey(ev) {
+    if (!on) return;
+    if (ev.key === 'Escape') { ev.preventDefault(); finish(); return; }
+    if (ev.key === 'ArrowRight' && at < run.steps.length - 1) { ev.preventDefault(); at++; place(); return; }
+    if (ev.key === 'ArrowLeft' && at > 0) { ev.preventDefault(); at--; place(); return; }
+    if (ev.key !== 'Tab') return;
+    var f = [$('c-skip'), $('c-next')];
+    if (ev.shiftKey && document.activeElement === f[0]) { ev.preventDefault(); f[1].focus(); }
+    else if (!ev.shiftKey && document.activeElement === f[1]) { ev.preventDefault(); f[0].focus(); }
+  }
+  function trap() {
+    if (!on) restore = document.activeElement;
+    on = true;
+    document.addEventListener('keydown', onKey, true);
+    try { $('c-next').focus(); } catch (e) { /* ignore */ }
+  }
+  function untrap() {
+    on = false;
+    document.removeEventListener('keydown', onKey, true);
+    if (restore && restore.focus) { try { restore.focus(); } catch (e) { /* ignore */ } }
+  }
+
+  /* ====================================================================
+     Pages. Booking is the one that has to wait: its grid is server data,
+     so the run is armed only once the spinner has been replaced. In the
+     real app this hangs off whatever booking.js resolves; here it is a
+     short timer that stands in for the same 4-40s read.
+     ==================================================================== */
+  var page = 'disc';
+  var bookReady = false;
+
+  function showPage(p, thenRun) {
+    page = p;
+    ['disc', 'new', 'book'].forEach(function (k) {
+      $('page-' + k).classList.toggle('is-on', k === p);
+    });
+    $('nav-disc').classList.toggle('active', p !== 'book');
+    $('nav-book').classList.toggle('active', p === 'book');
+    [].forEach.call(document.querySelectorAll('[data-page]'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-page') === p);
+    });
+    if (run) finish();
+
+    if (p === 'book' && !bookReady) {
+      $('b-loading').hidden = false;
+      $('b-ready').hidden = true;
+      setTimeout(function () {
+        bookReady = true;
+        $('b-loading').hidden = true;
+        $('b-ready').hidden = false;
+        arm(thenRun);
+      }, 1400);
+      return;
+    }
+    arm(thenRun);
+  }
+
+  /* fire the run that belongs to this page, unless it is already seen */
+  function arm(forced) {
+    var k = forced || ORDER.filter(function (n) {
+      return RUNS[n].page === page && !isSeen(n);
+    })[0];
+    if (k) setTimeout(function () { start(k); }, 60);
+  }
+
+  [].forEach.call(document.querySelectorAll('[data-page]'), function (b) {
+    b.addEventListener('click', function () { showPage(b.getAttribute('data-page')); });
+  });
+  $('d-new').addEventListener('click', function () { showPage('new'); });
+  $('nav-book').addEventListener('click', function () { showPage('book'); });
+  $('nav-disc').addEventListener('click', function () { showPage('disc'); });
+
+  /* ====================================================================
+     The replay button. Each entry goes to its page and runs it there --
+     a coach mark is worthless on a page that does not contain the thing
+     it points at.
+     ==================================================================== */
+  var menu = $('help-menu');
+  function setMenu(o) {
+    menu.classList.toggle('is-open', o);
+    $('help-btn').setAttribute('aria-expanded', o ? 'true' : 'false');
+  }
+  $('help-btn').addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    setMenu(!menu.classList.contains('is-open'));
+  });
+  [].forEach.call(menu.querySelectorAll('[data-run]'), function (b) {
+    b.addEventListener('click', function () {
+      var k = b.getAttribute('data-run');
+      setMenu(false);
+      if (RUNS[k].page === page) { if (run) finish(); start(k); }
+      else showPage(RUNS[k].page, k);
+    });
+  });
+  document.addEventListener('click', function (ev) {
+    if (menu.classList.contains('is-open') && !menu.contains(ev.target)) setMenu(false);
+  });
+
+  /* ====================================================================
+     Mock controls
+     ==================================================================== */
+  function paintSeen() {
+    var all = readSeen();
+    var done = ORDER.filter(function (k) { return (all[k] || 0) >= TOUR_VERSION; });
+    $('mk-seen').textContent = 'seen: ' + (done.length ? done.join(', ') : 'none');
+    ORDER.forEach(function (k) {
+      $('chk-' + k).textContent = (all[k] || 0) >= TOUR_VERSION ? 'done' : '';
+    });
+  }
+  $('mk-reset').addEventListener('click', function () {
+    try { localStorage.removeItem(LS); } catch (e) { /* ignore */ }
+    try { sessionStorage.removeItem(LS); } catch (e) { /* ignore */ }
+    mem = {};
+    location.reload();
+  });
+  $('mk-rm').addEventListener('click', function () {
+    var o = document.body.classList.toggle('rm');
+    this.classList.toggle('on', o);
+    if (run) place();
+  });
+
+  function themeNow() {
+    var t = document.documentElement.getAttribute('data-theme');
+    if (t === 'dark' || t === 'light') return t;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function syncFrame() {
+    var f = $('mk-frame');
+    if (!f || !document.body.classList.contains('mk-phone-on')) return;
+    f.src = 'tour-mock.html?embed=1&theme=' + themeNow() + '&page=' + page;
+  }
+  $('mk-phone').addEventListener('click', function () {
+    var o = document.body.classList.toggle('mk-phone-on');
+    this.classList.toggle('on', o);
+    if (o) syncFrame();
+  });
+  $('theme-btn').addEventListener('click', function () {
+    var next = themeNow() === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('clinic_theme', next); } catch (e) { /* ignore */ }
+    syncFrame();
+    if (run) place();
+  });
+
+  paintSeen();
+  showPage(qs.get('page') || 'disc');
+})();
+</script>
+</body>
+</html>

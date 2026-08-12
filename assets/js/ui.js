@@ -759,6 +759,30 @@
     return btn;
   }
 
+  /* The "?" that replays a walkthrough. tour.js owns the menu and every
+     behaviour behind it; this is only the affordance, and it returns null
+     when tour.js is absent so a page that never loads it gets a header with
+     no dead button in it (same rule as the Messages tab in TABS). */
+  function makeTourButton() {
+    var t = window.Clinic && Clinic.tour;
+    if (!t || typeof t.available !== 'function' || !t.available()) return null;
+
+    var wrap = el('div', 'tour-help-wrap');
+    var btn = el('button', 'tour-help', '?');
+    btn.id = 'tour-help';
+    btn.type = 'button';
+    btn.title = 'Replay a walkthrough';
+    btn.setAttribute('aria-label', 'Replay a walkthrough');
+    btn.setAttribute('aria-haspopup', 'true');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      if (Clinic.tour && Clinic.tour.toggleMenu) Clinic.tour.toggleMenu();
+    });
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
   /* =========================================================================
      WAITING, SAID OUT LOUD
      -------------------------------------------------------------------------
@@ -1152,6 +1176,8 @@
       demo.title = 'MOCK mode: no backend, data is seeded in the browser';
       actions.appendChild(demo);
     }
+    var tourBtn = makeTourButton();
+    if (tourBtn) actions.appendChild(tourBtn);
     actions.appendChild(makeThemeToggle());
     actions.appendChild(buildUserMenu());
     inner.appendChild(actions);
