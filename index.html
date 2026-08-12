@@ -6,6 +6,11 @@
   <title>Discussions · MScPHMxAI Coding Clinic</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%231f6feb' d='M1.25 3A1.75 1.75 0 0 1 3 1.25h10A1.75 1.75 0 0 1 14.75 3v7A1.75 1.75 0 0 1 13 11.75H7.5L4 14.75V11.75H3A1.75 1.75 0 0 1 1.25 10Z'/%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M6.25 5.5 4.25 7.5l2 2M9.75 5.5l2 2-2 2'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="assets/css/main.css">
+  <!-- Warms DNS + TCP + TLS to the flow host before the first API call, so the ~10 s flow
+       run is not preceded by a cold handshake to a very long CDN hostname. This is the
+       origin shared by all four *_URL values in assets/js/config.js — update it there and
+       here together if the flows are ever re-created. -->
+  <link rel="preconnect" href="https://default5ba5ef5e31094e7785bdcfeb0d347e.82.environment.api.powerplatform.com" crossorigin>
   <script>
     /* apply the saved theme before first paint (no flash) */
     (function () {
@@ -62,9 +67,16 @@
 
   <div id="toasts"></div>
 
-  <script defer src="assets/vendor/marked.min.js"></script>
-  <script defer src="assets/vendor/purify.min.js"></script>
-  <script defer src="assets/vendor/highlight.min.js"></script>
+  <!-- marked + purify + highlight.js are deliberately NOT loaded here, and this is the only
+       page where that is true. They are ~179 KB that a deferred-script page must download AND
+       execute before DOMContentLoaded fires — and DOMContentLoaded is what boots the board —
+       so on a cold load they sat directly between the student and the first threads.list call.
+       Nothing on this page renders markdown at boot: every script below was checked, and the
+       sole consumer is chat-panel.js's message bubbles. chat-panel.js now injects these three
+       itself the first time the panel is opened, where a sub-second script load hides inside
+       the messages.get round trip that opening the panel already costs.
+       thread/new/search/profile/booking/admin/messages genuinely do render markdown at boot
+       and keep loading them normally — do not copy this omission to another page. -->
   <!-- config.js is the ONE script here without `defer`, and mock-data.js is no
        longer listed at all. config.js document.write()s the demo-data script
        when MOCK is true, so a live visitor never downloads its 152 KB -- and
@@ -72,6 +84,12 @@
        See the note at the bottom of assets/js/config.js. -->
   <script src="assets/js/config.js"></script>
   <script defer src="assets/js/api.js"></script>
+  <!-- markdown.js STAYS even though the three vendor libs above went away, and the reason is
+       MOCK mode: mock-data.js calls Clinic.md.strip() to build the excerpt on every card in
+       the MOCK threads.list payload, and strip() is pure regex that needs no vendor lib at
+       all. Drop this tag and the offline demo board shows raw ** and # in its excerpts. It
+       costs 38 KB and has no load-time dependency on marked/DOMPurify/hljs — it configures
+       all three lazily on first render — so it is safe here without them. -->
   <script defer src="assets/js/markdown.js"></script>
   <script defer src="assets/js/ui.js"></script>
   <script defer src="assets/js/poll.js"></script>

@@ -2110,10 +2110,18 @@
     root.appendChild(composer());
   }
 
+  /* The tab name thread.html ships in its <title>. partialPaint() overwrites it
+     with the cached card's title, so every path that gives up on the thread has
+     to put this back — otherwise the page says "Discussion not found" while the
+     tab, the window switcher and any bookmark taken there still name a
+     discussion that no longer exists. */
+  var STATIC_TITLE = 'Discussion · MScPHMxAI Coding Clinic';
+
   function bigMessage(title, msg, actionText, onAction) {
     var root = $('thread-root');
     if (!root) return;
     clear(root);
+    document.title = STATIC_TITLE;
     var box = el('div', 'empty-state');
     box.appendChild(icon('comment-discussion'));
     box.appendChild(el('h3', null, title));
@@ -2156,6 +2164,7 @@
     var root = $('thread-root');
     if (!root) return;
     clear(root);
+    document.title = STATIC_TITLE;
     var box = el('div', 'empty-state');
     box.appendChild(icon('comment-discussion'));
     box.appendChild(el('h3', null, 'Discussion not found'));
@@ -2173,6 +2182,187 @@
     row.appendChild(back);
     box.appendChild(row);
     root.appendChild(box);
+  }
+
+  /* ==========================================================================
+   * FOURTH PAINT SOURCE — THE BOARD CARD THIS BROWSER ALREADY HAS
+   * ---------------------------------------------------------------------------
+   * The cold path — no stash, no view cache — used to buy a bare spinner for the
+   * whole ~11 s of threads.get, with nothing on screen to confirm that the right
+   * discussion had even opened. Meanwhile the card that was just CLICKED is
+   * sitting in api.cachedThreads(): title, author, category, labels, the v3
+   * badges and the date. That is a SYNCHRONOUS localStorage read and
+   * costs nothing — no flow run, no quota. So paint it, and say plainly that the
+   * rest is still on its way.
+   *
+   * WHY THIS IS NOT "absorb the card and call render()", which was the obvious
+   * first idea and is wrong twice over:
+   *
+   *   IT MUST NOT PRETEND TO BE THE THREAD. A board card carries no body_md, no
+   *   posts and no my_votes. Putting one in model.thread would have render()
+   *   draw a COMPLETE thread whose question is empty and which has no replies —
+   *   it would lie about the discussion rather than admit it is still loading —
+   *   and every other path that guards on `model.thread` (the clinic:bootstrap
+   *   re-render, quietRender(), armReconcile()) would start acting on a row the
+   *   server has never confirmed. So `model` is not touched here. This paints
+   *   and nothing else; render() clears #thread-root and takes the page over
+   *   whole when threads.get lands. No merge, no duplicated DOM, no second
+   *   renderer to keep in step with the first.
+   *
+   *   NOTHING HERE MAY BE CLICKED INTO A WRITE. No composer, no vote, no accept,
+   *   no endorse, no kebab, no moderation row: a click on a thread we only half
+   *   know could act on the wrong post, or on a state that has since changed.
+   *   The category and label pills are drawn INERT rather than as their usual
+   *   links for the same reason in miniature — they are context here, not
+   *   navigation, and render() restores the real ones a moment later. There is
+   *   no live control here at all, not even a back link: anything focusable
+   *   inside #thread-root is destroyed by render()'s clear(), which would throw
+   *   a keyboard or screen-reader user who had tabbed to it during the wait back
+   *   to <body> and restart their next Tab from the top of the page. Somebody
+   *   who has opened the wrong thread is served by the site header instead —
+   *   UI().renderHeader('discussions') fills #app-header, which is a sibling of
+   *   #thread-root and so survives every repaint on this page, and both its
+   *   brand link and its Discussions tab go to index.html.
+   *
+   * Everything below degrades to `false` — absent cache, foreign user, expired
+   * blob, unknown id, malformed row, any throw at all — and `false` means the
+   * page's own spinner is left alone, i.e. today's behaviour exactly.
+   * ========================================================================*/
+  var WAITING_MSG = 'Loading the question and its replies…';
+
+  function boardCard(id) {
+    var api = API();
+    if (typeof api.cachedThreads !== 'function') return null;
+    var list = api.cachedThreads();
+    var rows = (list && list.threads) || [];
+    if (Object.prototype.toString.call(rows) !== '[object Array]') return null;
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i];
+      if (!t || String(t.thread_id || '') !== String(id)) continue;
+      /* A _pending row is one of THIS browser's own un-landed threads. It has
+         its own paint — the stash branch in boot(), which also raises the
+         pending gate — and its copy is the fuller one. Never hijack it. */
+      if (t._pending) return null;
+      /* An empty <h1> is worse than a spinner: it looks like the thread is
+         broken rather than like the page is working. */
+      return t.title ? t : null;
+    }
+    return null;
+  }
+
+  /* The honest half. A skeleton shaped like the question and the replies, under
+     a live-region line that says what is missing and why — so a header on its
+     own is never read as "this discussion has no body and nobody answered".
+     Shimmed against a ui.js that predates loadingBlock(), the same way index.js
+     shims skeleton(). */
+  function waitingBody() {
+    var ui = UI();
+    if (typeof ui.loadingBlock === 'function') {
+      try { return ui.loadingBlock(WAITING_MSG, 'comment', 3); } catch (e) { /* shim below */ }
+    }
+    var box = el('div', 'loading-block');
+    var say = el('p', 'loading-block-msg');
+    say.setAttribute('role', 'status');
+    say.appendChild(el('span', 'spinner spinner-inline'));
+    say.appendChild(el('span', null, WAITING_MSG));
+    box.appendChild(say);
+    return box;
+  }
+
+  /* true when something was painted. The whole thing is built DETACHED and
+     swapped in on the last lines, so a throw half way through leaves the page
+     exactly as it was rather than stranding half a header on screen. */
+  function partialPaint(id) {
+    try {
+      var root = $('thread-root');
+      if (!root) return false;
+      var t = boardCard(id);
+      if (!t) return false;
+
+      var head = el('div', 'thread-header');
+
+      head.appendChild(el('h1', 'thread-title', t.title));
+
+      var sub = el('div', 'thread-sub');
+      if (t.pinned) sub.appendChild(el('span', 'badge-pinned', 'Pinned'));
+      /* answered() reads model.thread and threads.list carries `status` /
+         `accepted` rather than accepted_post_id, so the test is spelled out
+         here — through truthy(), because `accepted` is one of the mixed-type
+         wire booleans and the string 'FALSE' is truthy in plain JS. */
+      sub.appendChild((t.status === 'answered' || truthy(t.accepted))
+        ? el('span', 'badge-answered', 'Answered')
+        : el('span', 'badge', 'Open'));
+      if (truthy(t.locked)) {
+        var lb = el('span', 'badge-locked');
+        lb.appendChild(icon('lock'));
+        lb.appendChild(el('span', null, 'Locked'));
+        sub.appendChild(lb);
+      }
+      /* A badge, not the card's link to the earlier question: the banner and the
+         link arrive with render(), and one inert marker now is enough to stop
+         the reader wondering why the thread looks familiar. */
+      if (String(t.duplicate_of || '').trim()) {
+        var db = el('span', 'badge-duplicate');
+        db.appendChild(icon('copy'));
+        db.appendChild(el('span', null, 'Duplicate'));
+        sub.appendChild(db);
+      }
+      if (truthy(t.instructor_replied)) {
+        var ib = el('span', 'badge-instructor-replied');
+        ib.title = 'The instructor has replied on this discussion';
+        ib.appendChild(icon('shield'));
+        ib.appendChild(el('span', null, 'Instructor replied'));
+        sub.appendChild(ib);
+      }
+      /* Text only. main.css sizes the svg inside .badge-instructor and friends
+         but not inside the plain .badge (index.js reaches for a 12px icon
+         variant this file does not have), and an oversized star beside the other
+         badges is worse than no star. */
+      if (truthy(t.has_endorsed)) {
+        var eb = el('span', 'badge', 'Endorsed');
+        eb.title = 'An answer on this discussion is endorsed by the instructor';
+        sub.appendChild(eb);
+      }
+
+      var a = normAuthor(t.author);
+      sub.appendChild(avatar(a));
+      var byline = el('span', null, a.display_name + ' asked ' + relTime(t.created_at));
+      if (t.created_at) byline.title = fmtDateTime(t.created_at);
+      sub.appendChild(byline);
+      if (isInstructorAuthor(a)) sub.appendChild(instructorBadge());
+
+      /* Inert, per the note above: ui.pill() returns a plain <span> and nothing
+         here is given an href, a role or a handler. */
+      if (t.language) sub.appendChild(el('span', 'pill pill-category', t.language));
+      if (t.category) sub.appendChild(el('span', 'pill pill-category', t.category));
+      labelsOf(t).forEach(function (raw) {
+        var l = String(raw).trim();
+        if (l) sub.appendChild(pill(l));
+      });
+
+      /* No reply or upvote counts here. The real sub-line drawn by render()
+         carries neither — the reply count is implied by the timeline and the
+         thread's own upvotes live on the question's vote button — so a count
+         painted now has nothing to settle into: it would be shown from a board
+         cache that can be twelve hours old, and then silently vanish when the
+         server copy lands, reflowing the sub-line as it went. The skeleton below
+         already says the replies are on their way. */
+
+      head.appendChild(sub);
+
+      var frag = document.createDocumentFragment();
+      frag.appendChild(head);
+      frag.appendChild(waitingBody());
+
+      clear(root);
+      root.appendChild(frag);
+      /* The tab name is part of "yes, this is the one you clicked". render()
+         sets this same line again from the server copy. */
+      document.title = t.title + ' · MScPHMxAI Coding Clinic';
+      return true;
+    } catch (e) {
+      return false;                  /* the page's own spinner, left untouched */
+    }
   }
 
   /* ---------------------------------------------------------- the board, cheap
@@ -2468,11 +2658,11 @@
          "Discussion not found". It is dropped below, once the row is readable. */
     }
 
-    /* THIRD PAINT SOURCE — the threads.get view cache. Strictly last: a
-       stashed or pending thread is a row the server has not admitted to, and
-       its pending gate must win over any cached copy (there cannot be one for
-       a thread this new, but the ordering is what makes that a rule rather
-       than a coincidence). Everything below is a thread the server HAS
+    /* THIRD PAINT SOURCE — the threads.get view cache. Strictly after the two
+       above: a stashed or pending thread is a row the server has not admitted
+       to, and its pending gate must win over any cached copy (there cannot be
+       one for a thread this new, but the ordering is what makes that a rule
+       rather than a coincidence). Everything below is a thread the server HAS
        returned before, within the last few minutes, to this same user. */
     var fromCache = null;
     if (!stashed) {
@@ -2485,6 +2675,16 @@
         flashHash();
       }
     }
+
+    /* FOURTH PAINT SOURCE — the cached BOARD CARD, and strictly last of the
+       four. It is by far the weakest evidence: a card is a SUMMARY of a thread,
+       not the thread, so it only runs when neither real paint happened and it
+       never touches `model` (see partialPaint()). It also stands aside for
+       &new=1, whose ladder paints publishingState() into this same node a
+       moment later — two paints fighting over one node in one tick is a
+       flicker, and the ladder's copy is the one that is true. No flashHash()
+       either: there is no post here to flash. */
+    if (!stashed && !fromCache && !isNewThread) partialPaint(threadId);
 
     var threadP = isNewThread
       ? loadJustCreatedThread(!stashed)

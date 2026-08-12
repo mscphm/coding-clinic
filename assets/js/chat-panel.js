@@ -400,6 +400,91 @@
     els.body.appendChild(list);
   }
 
+  /* ------------------------------------------------- markdown stack, on demand */
+
+  /* index.html is the ONE page that does not ship marked/purify/highlight in its
+     markup, and this is what pays for that. Those three are ~179 KB which a
+     defer-everything page must download AND execute before DOMContentLoaded
+     fires — and DOMContentLoaded is what boots the board — so on the most-visited
+     cold load in the app they sat directly between the student and the first
+     threads.list call, for a page that renders no markdown at boot. The bubbles
+     below were their only consumer there, so the board dropped the tags and we
+     fetch them here instead: opening the panel already costs a messages.list or
+     messages.get round trip of ~11 s, and a local sub-second script load hides
+     completely inside a wait the student is already having. No new flow run is
+     involved — these are same-origin static files, not API calls.
+
+     markdown.js itself is deliberately NOT in this list. Every page that ships
+     chat-panel.js also ships markdown.js (index.html keeps it because
+     mock-data.js needs Clinic.md.strip() for its card excerpts), and markdown.js
+     has no load-time dependency on the vendor libs — it configures marked,
+     DOMPurify and hljs lazily on first render, which is the whole reason they can
+     arrive this late and still work.
+
+     KaTeX is not fetched either, and that is not an oversight: index.html has
+     never loaded katex.min.js, so maths has never been typeset in the panel on
+     that page. markdown.js leaves the $…$ source visible, exactly as today. */
+
+  var MD_VENDOR = [
+    'assets/vendor/marked.min.js',
+    'assets/vendor/purify.min.js',
+    'assets/vendor/highlight.min.js'
+  ];
+
+  var mdState = 0;                  /* 0 = untried, 1 = in flight, 2 = settled */
+  var mdWaiters = [];
+
+  /* available() is the real precondition — marked AND DOMPurify both parsed and
+     exposed. Testing for Clinic.md alone would report ready on index.html, where
+     markdown.js is present but the three libs it drives are not. */
+  function mdReady() {
+    try {
+      return !!(Clinic.md && typeof Clinic.md.available === 'function' &&
+        Clinic.md.available());
+    } catch (e) { return false; }
+  }
+
+  function mdSettle() {
+    mdState = 2;
+    var list = mdWaiters;
+    mdWaiters = [];
+    for (var i = 0; i < list.length; i++) {
+      try { list[i](); } catch (e) { /* one bad waiter must not strand the rest */ }
+    }
+  }
+
+  /* Resolves when the stack is usable OR when it is definitively not going to be.
+     It NEVER rejects: a script that 404s has to leave the existing plain-text
+     fallback in charge, not take the panel down with it. */
+  function ensureMarkdown() {
+    return new Promise(function (resolve) {
+      /* Instant no-op on every page that already has the libs in its markup, and
+         on every open after the first. */
+      if (mdState === 2 || mdReady()) { resolve(); return; }
+      mdWaiters.push(resolve);
+      if (mdState === 1) return;    /* already injecting — two rapid opens, one fetch */
+      mdState = 1;
+
+      var i = 0;
+      function next() {
+        if (i >= MD_VENDOR.length) { mdSettle(); return; }
+        var s = document.createElement('script');
+        /* async = false is load-bearing. An INJECTED script defaults to
+           async = true, which would let purify.min.js execute before
+           marked.min.js and leave markdown.js half-armed. This is the same
+           ordering rule config.js documents for its document.write()n tag. */
+        s.async = false;
+        s.src = MD_VENDOR[i++];
+        s.onload = next;
+        /* Stop at the first failure rather than press on: without marked there is
+           nothing for purify to sanitise, and the text fallback is already right. */
+        s.onerror = function () { mdSettle(); };
+        (document.head || document.body || document.documentElement).appendChild(s);
+      }
+      try { next(); } catch (e) { mdSettle(); }
+    });
+  }
+
   /* --------------------------------------------------------------- bubbles */
 
   function bubbleFor(msg, isPendingEntry) {
@@ -565,9 +650,32 @@
         els.title.textContent = data.other.display_name;
       }
       rows = (data.messages || []).slice(0);
+      /* Paint, mark read and start the poller UNCONDITIONALLY — none of them may
+         wait on a <script> element, which can hang without ever firing onload or
+         onerror and would strand the panel on "Opening…" for good. ensureMarkdown()
+         was started when the panel opened and this call has just spent ~11 s, so on
+         index.html the libs have landed and the first paint below is already
+         markdown; the upgrade below only exists for the rare case where they have
+         not, and it re-renders once rather than leaving fallback bubbles behind.
+         The mdState test is not redundant with mdReady(): available() asks only
+         for marked and DOMPurify, and the three tags are injected in series, so
+         mid-injection both of those can be live while highlight.min.js is still
+         downloading. Treating that as "already had markdown" would paint code
+         blocks unhighlighted and then skip the upgrade. Requiring the loader to
+         have settled means the pages that ship the libs in markup still take the
+         no-op path (their state never leaves 0) and a 404'd vendor file still
+         latches at 2, so neither gets a pointless extra render. */
+      var hadMd = mdReady() && mdState !== 1;
       renderThread(false);
       markRead(cid);
       startPoll(cid);
+      if (!hadMd) {
+        ensureMarkdown().then(function () {
+          if (stale(myGen) || view !== 'conv' || !conv ||
+              conv.conversation_id !== cid) return;
+          if (mdReady()) renderThread(true);
+        });
+      }
     }, function (err) {
       if (isUnknownAction(err)) { goInert(err); return; }
       if (err && err.code === 'unauthorized') { closePanel(); return; }
@@ -795,6 +903,12 @@
     open = true;
     root.classList.add('is-open');
     if (document.body.classList) document.body.classList.add('has-chat-panel');
+
+    /* Kick the markdown fetch off HERE, before the call below rather than after
+       it, so it runs in parallel with a ~11 s messages.list/get and has landed
+       long before there is a bubble to paint. On every page but index.html this
+       returns immediately without touching the network. */
+    ensureMarkdown();
 
     if (conversationId) loadConversation(conversationId, null, false);
     else loadInbox();

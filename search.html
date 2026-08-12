@@ -6,6 +6,11 @@
   <title>Search · MScPHMxAI Coding Clinic</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%231f6feb' d='M1.25 3A1.75 1.75 0 0 1 3 1.25h10A1.75 1.75 0 0 1 14.75 3v7A1.75 1.75 0 0 1 13 11.75H7.5L4 14.75V11.75H3A1.75 1.75 0 0 1 1.25 10Z'/%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M6.25 5.5 4.25 7.5l2 2M9.75 5.5l2 2-2 2'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="assets/css/main.css">
+  <!-- Warms DNS + TCP + TLS to the flow host before the first API call, so the ~10 s flow
+       run is not preceded by a cold handshake to a very long CDN hostname. This is the
+       origin shared by all four *_URL values in assets/js/config.js — update it there and
+       here together if the flows are ever re-created. -->
+  <link rel="preconnect" href="https://default5ba5ef5e31094e7785bdcfeb0d347e.82.environment.api.powerplatform.com" crossorigin>
   <script>
     /* apply the saved theme before first paint (no flash) */
     (function () {

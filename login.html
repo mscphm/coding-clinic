@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in · MScPHMxAI Coding Clinic</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%231f6feb' d='M1.25 3A1.75 1.75 0 0 1 3 1.25h10A1.75 1.75 0 0 1 14.75 3v7A1.75 1.75 0 0 1 13 11.75H7.5L4 14.75V11.75H3A1.75 1.75 0 0 1 1.25 10Z'/%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M6.25 5.5 4.25 7.5l2 2M9.75 5.5l2 2-2 2'/%3E%3C/svg%3E">
+  <!-- Nothing on this page touches the API origin until a form is submitted, so
+       the DNS lookup, TCP handshake and TLS negotiation would otherwise all sit
+       on the front of the first call. Opening the connection while the student
+       is still typing takes that off the clock for free. -->
+  <link rel="preconnect" href="https://default5ba5ef5e31094e7785bdcfeb0d347e.82.environment.api.powerplatform.com" crossorigin>
   <link rel="stylesheet" href="assets/css/main.css">
   <script>
     /* apply the saved theme before first paint (no flash) */
@@ -114,6 +119,17 @@
       </div>
     </div>
 
+    <!-- signed in, warming the board ----------------------------------
+         Shown only while the two reads index.html would otherwise cold-fire are
+         running here instead. See the warmThenLeave() note in the script below
+         for why the student waits here rather than on an empty board. -->
+    <div id="step-loading" hidden>
+      <h2>Signed in</h2>
+      <div class="text-center mt-16 mb-16"><span class="spinner spinner-lg" aria-hidden="true"></span></div>
+      <p class="field-hint text-center mb-16" id="loading-status" role="status">Loading your discussions…</p>
+      <button class="btn btn-block" type="button" id="loading-skip">Go to the discussions now</button>
+    </div>
+
   </div>
 
   <div class="login-note is-mock" id="mock-note" hidden>
@@ -143,7 +159,8 @@
     var state = { email: '', code: '', passcode: '', mode: 'code',
                   codeSentAt: 0, lagAttempts: 0, lagTimer: 0 };
 
-    var STEPS = ['step-email', 'step-code', 'step-name', 'step-passcode', 'step-signed-in'];
+    var STEPS = ['step-email', 'step-code', 'step-name', 'step-passcode', 'step-signed-in',
+                 'step-loading'];
 
     /* --- helpers ---------------------------------------------------- */
 
@@ -228,14 +245,261 @@
       return next;
     }
 
+    /* --- warming the board before handing the student over -------------------
+       WHAT THIS REPLACES: onAuthSuccess used to call location.replace() the
+       instant auth.verify resolved, and index.html then cold-fired
+       meta.bootstrap + threads.list. On a FIRST sign-in that is the worst
+       possible moment to ask anything: the session row auth.verify has just
+       written is not readable for 26-54 s (measured), so both calls come back
+       `unauthorized` and sit out api.js's ripening ladder — which retries for
+       as long as the token is younger than RIPEN_MS — while the student watches
+       an empty skeleton for 30-60 s and reasonably concludes the site is
+       broken.
+
+       So the same two reads are made HERE, on a page that says out loud what it
+       is waiting for, and we navigate once threads.list has settled. api.js
+       writes both answers into localStorage on the way through (storeBootstrap
+       / storeThreads), so index.html and thread.html then paint from cache.
+
+       Two things this is NOT, when both calls come back:
+       - not an extra flow run. Priming either cache stops index.html asking
+         again, because api.js holds both actions to a revalidate floor: 75 s
+         for threads.list (REVALIDATE_MIN_AGE_MS) and, since 2026-08-12, 60 s
+         for the bootstrap (BOOT_REVALIDATE_MIN_AGE_MS). A cache written a few
+         seconds ago is inside both windows, so index.html paints from it and
+         the shared daily quota is unmoved. That property lives in api.js and is
+         enforced there rather than hoped for here; lower either floor below the
+         time it takes to redirect and this page stops being free.
+       - not a fire-and-forget prefetch. An MPA navigation aborts the fetch in
+         the browser while the flow run carries on executing and still bills,
+         which is the worst of both worlds. Holding the page is the whole point.
+
+       Where it DOES cost: a TRANSPORT rejection — throttled, 502, 504 — leaves
+       the session intact and caches nothing, so we redirect and index.html
+       fires its own threads.list. That one sign-in spends two runs of the most
+       expensive action where it used to spend one. Deliberately not retried
+       here: retrying is what turns a bad minute for the tenant into a worse one.
+       (The other rejection, an `unauthorized` that outlives the ripening ladder,
+       does NOT redirect — see go(). And for the ladder's own cost, read api.js's
+       COST paragraph rather than a number copied to here, which is how the two
+       files drifted apart before.)
+
+       We wait on threads.list and not on the bootstrap: the bootstrap is ~3.2 s
+       against ~11 s and has all but certainly landed first. If it somehow has
+       not, index.html does exactly what it does today. */
+
+    /* This cap races api.js's ripening ladder, so it has to sit ABOVE the
+       ladder's ceiling rather than inside it: a cap landing mid-ladder kills the
+       attempt that was about to succeed and ships the student to index.html
+       holding a token with no window left, which is the login loop again.
+
+       The ceiling is NOT re-derived here. Twice now this page has carried its
+       own arithmetic for it and been wrong both times — once by forgetting that
+       the retry schedule sits between attempts of a call that itself takes
+       seconds, once by forgetting that the window is tested before the terminal
+       wait rather than after it. api.js owns the ladder, so api.js publishes the
+       number, and this page adds a small margin to it. The fallback is only for
+       an api.js too old to export it. */
+    var WARM_CAP_FALLBACK_MS = 165000;
+    var WARM_CAP_MARGIN_MS = 10000;
+
+    function warmCapMs() {
+      var api = (window.Clinic && window.Clinic.api) || null;
+      var ceiling = 0;
+      try {
+        if (api && typeof api.ripenCeilingMs === 'function') ceiling = api.ripenCeilingMs();
+      } catch (e) { ceiling = 0; }
+      if (typeof ceiling !== 'number' || !isFinite(ceiling) || ceiling <= 0) {
+        return WARM_CAP_FALLBACK_MS;
+      }
+      return ceiling + WARM_CAP_MARGIN_MS;
+    }
+
+    /* Silence is what makes a long wait feel broken, so the line escalates.
+       One-shot timeouts only — contract §8.3 rule 5 keeps recurring work in
+       Clinic.poll, which this page deliberately does not load. */
+    var WARM_STATUS = [
+      [0, 'Loading your discussions…'],
+      [10000, 'Still loading — the first sign-in is the slow one, because your new ' +
+              'session has to reach the class workbook before the board can be read.'],
+      /* Not "nearly there": at 30 s the ladder may still have a full minute to
+         run, and a reassurance the code cannot keep is worse than a long wait.
+         This line stays true whichever way the next minute goes. */
+      [30000, 'Still waiting on the class workbook. A first sign-in can take up ' +
+              'to another minute.']
+    ];
+
+    /* Returns true if it has taken responsibility for leaving the page, false if
+       the caller should just redirect the way it always did. */
+    function warmThenLeave() {
+      var api = (window.Clinic && window.Clinic.api) || null;
+      if (!api || typeof api.refreshThreads !== 'function' ||
+          typeof api.refreshBootstrap !== 'function') return false;
+
+      /* Warm re-login: the board this student left is still cached and still
+         theirs (cachedThreads checks the user id and the age itself), so there
+         is nothing to wait for. Straight through. */
+      var cached = null;
+      try { cached = api.cachedThreads ? api.cachedThreads() : null; } catch (e) { cached = null; }
+      if (cached && Object.prototype.toString.call(cached.threads) === '[object Array]') {
+        return false;
+      }
+
+      var done = false;
+      var timers = [];
+      var warmCalls = [];        /* the in-flight warms, so a late one can be swept */
+
+      /* Leaving, by whichever route wins. The token test is the important part:
+         api.js answers a genuine `unauthorized` with clearSession() followed by
+         bounceToLogin(), and bounceToLogin() deliberately does nothing when it
+         is already on the login page — which is now the common case, because
+         this is where those two calls are made. So the session can be destroyed
+         underneath us with no visible sign, and both warm promises swallow their
+         rejections. Redirecting then would send the student to a page that can
+         only bounce them straight back to an empty email form, after a minute of
+         copy promising the board was on its way. If the credential is gone, say
+         so here instead, on the step they are already looking at. */
+      function go() {
+        if (done) return;          /* exactly one exit, whichever path wins */
+        done = true;
+        while (timers.length) window.clearTimeout(timers.pop());
+
+        /* Only a store we can actually READ, which genuinely holds no token,
+           counts as "the session was destroyed". The two ways of not knowing
+           both have to fail OPEN — an unnecessary redirect self-corrects, while
+           a false "your sign-in failed" strands somebody who is signed in.
+           That distinction is load-bearing rather than defensive: when storage
+           is blocked outright (Safari private mode, a locked-down webview) no
+           token was ever persisted, every call answers unauthorized, and reading
+           that as a failed sign-in would tell the student to request a new code
+           in a loop that cannot ever work — one email and one flow run per go. */
+        var alive = true;
+        try {
+          /* The probe WRITES, because a write is what the sign-in needed and a
+             read is not the same test. The classic broken store — Safari private
+             browsing, a quota-exceeded origin — answers getItem happily and
+             throws only on setItem, and api.js's lsSet swallows that (it must:
+             storage failing is not a reason to break a page). So the token was
+             never persisted, every call answers unauthorized, and a read-only
+             probe would call that "a readable store with no token", i.e. exactly
+             the destroyed-session verdict this fail-open exists to prevent. */
+          var probe = '__clinic_probe__';
+          window.localStorage.setItem(probe, '1');
+          window.localStorage.removeItem(probe);
+          if (typeof api.getToken === 'function') alive = !!api.getToken();
+        } catch (e) { alive = true; }
+        if (!alive) {
+          /* Back to whichever step they actually came through, so the retry is
+             the one they know how to do. showStep() clears errors, so the
+             message goes on afterwards or it would be wiped. */
+          var step = 'step-email', box = 'error-email', again = 'request a new code';
+          if (state.email && state.mode === 'passcode') {
+            step = 'step-passcode'; box = 'error-passcode'; again = 'enter the class passcode';
+          } else if (state.email) {
+            step = 'step-code'; box = 'error-code';
+          }
+          showStep(step);
+          showError(box, 'Your sign-in did not reach the class workbook in time. ' +
+            'Please ' + again + ' and try again.');
+          /* This branch keeps the page ALIVE, and that removes a guarantee the
+             rest of this block used to get for free: a redirect tore the page
+             down, so a warm call settling late could never run its handler. Now
+             it can — and refreshThreads() ends in storeThreads(), which would
+             write a board back into the storage clearSession() has just emptied,
+             stamped with an empty uid and carrying the per-row flags api.js
+             strips precisely because they identify their author. So sweep up
+             after whichever call is still out there. */
+          var s;
+          for (s = 0; s < warmCalls.length; s++) {
+            try { warmCalls[s].then(sweep, sweep); } catch (e) { /* not a promise */ }
+          }
+          return;
+        }
+        location.replace(safeNext());
+      }
+
+      /* Swept LATE, so it has to check what it is about to destroy. This branch
+         leaves the page up on the step the student can retry from, and the code
+         in the input is still valid for ten minutes — so they very often DO
+         retry, and succeed, while a straggler from the first attempt is still
+         climbing its ladder. That straggler re-reads the token on every attempt
+         (dispatch does), so it adopts the NEW session, succeeds against it, and
+         its payload is stamped with the new uid — legitimate data belonging to a
+         live session. Clearing unconditionally at that point would delete a
+         working sign-in and put the student back on an error message for an
+         attempt that had actually worked, once per retry, forever. A token
+         present now therefore means there is nothing here to clean up. */
+      function sweep() {
+        try {
+          if (api.getToken && api.getToken()) return;
+          if (api.clearSession) api.clearSession();
+        } catch (e) { /* nothing to do */ }
+      }
+
+      function say(text) {
+        var node = $('loading-status');
+        if (node) node.textContent = text;
+      }
+
+      showStep('step-loading');
+      say(WARM_STATUS[0][1]);
+
+      /* Never trap anyone behind our own optimisation, so the escape hatch is
+         offered from the first second rather than earned by waiting.
+         Honest about what it costs: while the token is younger than api.js's
+         ripening window, leaving is free — a token still ripening survives the
+         trip and index.html carries on retrying it. Past that window an
+         `unauthorized` on the other side is terminal, so a student who skips
+         very late can still land back here. That is the same outcome they would
+         have had before any of this existed, and it beats holding them. */
+      var skip = $('loading-skip');
+      if (skip) skip.addEventListener('click', go);
+
+      var i;
+      for (i = 1; i < WARM_STATUS.length; i++) {
+        timers.push(window.setTimeout(
+          (function (text) { return function () { say(text); }; })(WARM_STATUS[i][1]),
+          WARM_STATUS[i][0]));
+      }
+      timers.push(window.setTimeout(go, warmCapMs()));
+
+      /* The bootstrap is the optional half — if it fails, index.html asks again
+         and the student is no worse off than before this block existed. */
+      try {
+        var pb = Promise.resolve(api.refreshBootstrap());
+        warmCalls.push(pb);
+        pb['catch'](function () { /* index will re-ask */ });
+      } catch (e) { /* ignore; the board is what we are actually waiting for */ }
+
+      /* Resolve OR reject leaves. The two rejections are not the same thing and
+         go() tells them apart: a transport failure (throttle, 502, 504) leaves
+         the session intact and we redirect, so index.html retries and that one
+         sign-in costs an extra threads.list; an `unauthorized` that outlived the
+         ripening ladder means api.js has already cleared the session, and go()
+         stops rather than redirecting into a page that could only bounce. */
+      try {
+        var pt = Promise.resolve(api.refreshThreads());
+        warmCalls.push(pt);
+        pt.then(go, go);
+      } catch (e) { go(); }
+
+      return true;
+    }
+
     function onAuthSuccess(data) {
       data = data || {};
-      /* api.js persists the session itself; this is a belt-and-braces fallback */
+      /* api.js persists the session itself; this is a belt-and-braces fallback.
+         It also has to run BEFORE warmThenLeave(), because cachedThreads() keys
+         its cache on the signed-in user id. */
       try {
         if (data.token) localStorage.setItem('clinic_token', data.token);
         if (data.user) localStorage.setItem('clinic_user', JSON.stringify(data.user));
       } catch (e) { /* storage unavailable */ }
-      location.replace(safeNext());
+      /* Anything at all going wrong in the warm-up falls through to the
+         redirect this line used to be on its own. */
+      var warming = false;
+      try { warming = warmThenLeave(); } catch (e) { warming = false; }
+      if (!warming) location.replace(safeNext());
     }
 
     /* --- the workbook write-visibility window -------------------------------
@@ -485,11 +749,33 @@
       location.replace(safeNext());
     });
 
+    /* "Sign in as someone else" has to mean the same thing the header menu's
+       Sign out means, and only api.js knows the full list of keys. Dropping the
+       token and the user by hand leaves the bootstrap blob behind — that blob
+       carries the previous student's id, display name, role and email — along
+       with their pending-threads store and the sessionStorage leaderboard,
+       thread-view and search caches. On a shared lab machine the next person to
+       press this button is exactly the person who must not inherit them, so
+       route through clearSession() as ui.js does. Not api.logout(): that
+       navigates to login.html, which is the page we are already standing on.
+       The two removeItem calls stay as the fallback for a browser where api.js
+       never loaded, which is the only state in which they are the best we
+       have. */
     $('sign-out-btn').addEventListener('click', function () {
+      var api = (window.Clinic && window.Clinic.api) || null;
+      var cleared = false;
       try {
-        localStorage.removeItem('clinic_token');
-        localStorage.removeItem('clinic_user');
-      } catch (e) { /* ignore */ }
+        if (api && typeof api.clearSession === 'function') {
+          api.clearSession();
+          cleared = true;
+        }
+      } catch (e) { cleared = false; }
+      if (!cleared) {
+        try {
+          localStorage.removeItem('clinic_token');
+          localStorage.removeItem('clinic_user');
+        } catch (e) { /* ignore */ }
+      }
       showStep('step-email');
     });
 

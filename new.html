@@ -10,6 +10,12 @@
        relative to itself, so the layout assets/vendor/katex.min.css +
        assets/vendor/fonts/ is not negotiable. -->
   <link rel="stylesheet" href="assets/vendor/katex.min.css">
+  <!-- Warms DNS + TCP + TLS to the flow host before the first API call, so the ~10 s flow
+       run is not preceded by a cold handshake to a very long CDN hostname. This is the
+       origin shared by all four *_URL values in assets/js/config.js — update it there and
+       here together if the flows are ever re-created. Placed after the KaTeX stylesheet so
+       the main.css -> katex.min.css adjacency above stays exactly as its comment requires. -->
+  <link rel="preconnect" href="https://default5ba5ef5e31094e7785bdcfeb0d347e.82.environment.api.powerplatform.com" crossorigin>
   <script>
     /* apply the saved theme before first paint (no flash) */
     (function () {

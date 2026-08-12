@@ -12,9 +12,19 @@
  * Every backend call on this platform is an Excel read behind Power Automate:
  * 10-21 SECONDS. A server-side search would be unusable, and it would cost a
  * flow run per keystroke. So search is entirely client-side, built from ONE
- * response — `threads.list` — which index.html already asks for at boot and
- * which api.js already single-flights through its DEDUPE map. A second caller
- * on the same paint therefore costs ZERO extra Excel round-trips.
+ * response — `threads.list` — which index.html already asks for at boot, which
+ * api.js single-flights through its DEDUPE map, and which api.js also keeps in
+ * localStorage for up to 12 h. Since v3.3 this file reads that cache and
+ * listens for api.js's 'clinic:threads' event instead of fetching its own copy,
+ * so a search that follows a visit to the board costs ZERO extra Excel
+ * round-trips — it rides along with what the board already paid for.
+ *
+ * The board is refreshed ONLY by the pages that render it (index.js, thread.js,
+ * booking.js). The two pages that use this index — search.html and new.html —
+ * never touch it, so on exactly those pages nothing revalidates that cache and
+ * the 'clinic:threads' event never fires. The stored board is therefore trusted
+ * only while it is younger than the caller's maxAgeMs; past that we spend a run
+ * of our own rather than search a board nobody has refreshed for hours.
  *
  * That one response is also the anonymity guarantee: everything in here has
  * already passed through the flow's PublicAuthor masking Select, so an
@@ -329,10 +339,16 @@
     return obj;
   }
 
-  function writeCache(threads, users) {
+  /* `fetched_at` means WHEN THE SERVER ANSWERED, not when we happened to copy
+     the payload, which is why callers may pass it in. The board branch in
+     load() hands us a blob api.js fetched some time ago; stamping that with
+     Date.now() would let a board accepted at the very edge of maxAgeMs go on
+     being served from our own cache for a further maxAgeMs. A caller holding a
+     response it just received omits the argument. */
+  function writeCache(threads, users, fetchedAt) {
     try {
       window.sessionStorage.setItem(CACHE_KEY, JSON.stringify({
-        fetched_at: Date.now(), threads: threads || [], users: users || []
+        fetched_at: fetchedAt || Date.now(), threads: threads || [], users: users || []
       }));
     } catch (e) { /* private mode or quota: the index still works, just per-page */ }
   }
@@ -366,6 +382,113 @@
     });
   }
 
+  /* ====================================================== THE BOARD CACHE == */
+
+  /* api.js keeps the last threads.list payload in localStorage (uid-namespaced,
+     12 h max age), written by whichever page last rendered the board. Until
+     v3.3 this file ignored all of that and called threads.list itself, which
+     meant a visit to search.html past our own 90 s TTL bought a second ~11 s
+     flow run — and ~7 requests off the cohort's shared daily allocation — for a
+     payload api.js was already holding, sometimes seconds old. Nothing about an
+     inverted index needs a private copy of the board.
+
+     PENDING ROWS ARE DROPPED HERE, AND THAT IS DELIBERATE. api.js merges this
+     browser's just-posted, not-yet-readable threads into everything it hands
+     out, flagged `_pending` (api.js's withPending). That is right for the BOARD
+     — "Posting…" beats a row that appears to have vanished — and wrong for
+     SEARCH: the server cannot resolve the id for another ~30 s, so a search hit
+     would lead to a thread page that 404s. A post that is simply not findable
+     for a minute is the smaller failure, and the one the student can make sense
+     of. */
+  function serverRows(payload) {
+    var rows = (payload && payload.threads) || [];
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i]._pending !== true) out.push(rows[i]);
+    }
+    return out;
+  }
+
+  /* Reads localStorage through api.js; never touches the network, never throws.
+     Returns null for anything it does not recognise, which puts load() straight
+     back on the path it took before this existed. */
+  function boardPayload() {
+    var api = Clinic.api;
+    if (!api || typeof api.cachedThreads !== 'function') return null;
+    var payload = null;
+    try { payload = api.cachedThreads(); } catch (e) { return null; }
+    if (!payload || !Array.isArray(payload.threads)) return null;
+    return payload;
+  }
+
+  /* How old api.js's stored board is, in ms — the piece cachedThreads() cannot
+     tell us, because the pending merge makes "how old is the server's answer"
+     ambiguous the moment one of this browser's own posts is in the payload.
+
+     Infinity whenever we cannot get a straight answer: an api.js built before
+     cachedThreadsAgeMs() was exported, a throw, a value that is not a sane
+     number. Every caller compares this against a maximum age, so Infinity sends
+     them to the network. That is the right direction to fail in. Failing the
+     other way — treating an unknown age as young — is the whole defect this
+     guard exists for: an index built from an ancient board answers "No
+     questions match", and the student posts the duplicate. */
+  function boardAgeMs() {
+    var api = Clinic.api;
+    if (!api || typeof api.cachedThreadsAgeMs !== 'function') return Infinity;
+    var age;
+    try { age = api.cachedThreadsAgeMs(); } catch (e) { return Infinity; }
+    if (typeof age !== 'number' || isNaN(age) || age < 0) return Infinity;
+    return age;
+  }
+
+  /* api.js fires 'clinic:threads' with the merged payload every time a
+     threads.list refresh LANDS — index.html's boot fetch, its background
+     revalidation, any page that calls refreshThreads(). Riding along means the
+     index tracks the board for free and never needs a run of its own.
+
+     It matters most on index.html, which loads this file but never calls
+     load(): browsing the board leaves a warm cache behind, so a visit to
+     search.html or the composer's similar-threads panel that follows soon
+     enough after costs nothing at all. It is only "soon enough" that this buys,
+     though — load() still gates on age, because search.html and new.html never
+     refresh the board and so never receive this event. Rebuilding over 20-200
+     cards is sub-millisecond, so it is not worth gating on which page is
+     listening.
+
+     Everything is inside one try/catch: a malformed payload must cost us the
+     rebuild, never the page. */
+  if (window.addEventListener) {
+    window.addEventListener('clinic:threads', function (ev) {
+      try {
+        var payload = ev && ev.detail;
+        if (!payload || !Array.isArray(payload.threads)) return;
+        var rows = serverRows(payload);
+        var wasStale = stale;
+        if (Array.isArray(payload.users)) lastUsers = payload.users;
+        /* DO NOT re-persist while we are invalidated. invalidate() deletes the
+           sessionStorage copy precisely so that the next load() — including the
+           one on the NEXT page in this tab, where the in-memory `stale` flag
+           does not survive the navigation — goes back to the server. Writing
+           the cache again from a board event undoes that cross-page signal, and
+           does it with a payload that may well predate the write which rang the
+           doorbell: Excel needs 26-54 s before a write reads back. Rebuilding
+           the in-memory index is still worth doing — it is sub-millisecond, and
+           this payload is strictly newer than the one we were holding. */
+        if (!wasStale) writeCache(rows, lastUsers);
+        build(rows, 'network');
+        /* build() clears `stale`, and only a load() that actually went to the
+           server has earned that. invalidate() is rung by every write path —
+           replies, accepts, moderation, another tab's doorbell — and for all of
+           those except a brand-new thread there is nothing pending to look for,
+           so the conservative reading of a landed refresh is that it may have
+           been issued before the write it is supposed to reflect. Keep whatever
+           the flag was; the search page's "Someone posted — refresh" button,
+           which loads with force:true, is what clears it. */
+        stale = wasStale;
+      } catch (e) { /* keep whatever index we had; this path is a bonus, not a duty */ }
+    });
+  }
+
   function load(opts) {
     opts = opts || {};
     var force = !!opts.force;
@@ -381,6 +504,41 @@
         build(cached.threads, 'cache');
         return Promise.resolve(module);
       }
+      /* Nothing of ours inside the TTL — but api.js may still be holding the
+         very payload we are about to spend 10-21 s on. Take it and write our
+         own cache from it, so the next load() in this tab is a sessionStorage
+         read again.
+
+         ONLY WHILE THAT BOARD IS ITSELF INSIDE maxAge. api.js caps the blob at
+         12 h, and neither page that calls load() — search.html, new.html —
+         ever refreshes the board, so on exactly the pages that use this index
+         nothing revalidates it and 'clinic:threads' never fires. Without the
+         age gate this branch would happily build the index, and the composer's
+         duplicate check with it, from a board fetched hours ago and report it
+         as fresh. That is the failure this whole file exists to prevent: a
+         student searches at 15:30 against a 14:05 board, is told "No questions
+         match", and posts a duplicate of a thread that is already there.
+         boardAgeMs() answers Infinity when api.js is too old to export the
+         helper, which sends that build to the NETWORK rather than to a board of
+         unknown age — the cost of being wrong here is a duplicate thread, so we
+         degrade towards freshness, not towards speed.
+
+         Guarded by the same !force && !stale as the read above, and for the
+         same reasons: `force` is the search page's "Someone posted — refresh"
+         button and has to reach the network, and a stale index is stale
+         because of a write that this payload — a snapshot of the same server
+         state our own cache held — cannot contain either. */
+      var boardAge = boardAgeMs();
+      var board = boardAge <= maxAge ? boardPayload() : null;
+      if (board) {
+        var rows = serverRows(board);
+        if (Array.isArray(board.users)) lastUsers = board.users;
+        /* Cached under the board's OWN fetch time, not ours, so that accepting
+           an 80 s board does not silently buy it another 90 s of life here. */
+        writeCache(rows, lastUsers, Date.now() - boardAge);
+        build(rows, 'cache');
+        return Promise.resolve(module);
+      }
     }
     /* Our own single-flight on top of api.js's DEDUPE: two callers on the same
        paint (index.js's own threads.list and a similar-threads panel) must not
@@ -393,7 +551,11 @@
     }
 
     inFlight = api.call('threads.list', {}).then(function (res) {
-      var threads = (res && res.threads) || [];
+      /* The raw call returns the SERVER payload, so there is nothing pending in
+         it to drop — serverRows() is used anyway so that every path into
+         build() filters identically and a later switch to one of api.js's
+         merged helpers cannot quietly reintroduce unresolvable ids. */
+      var threads = serverRows(res);
       lastUsers = (res && res.users) || [];
       writeCache(threads, lastUsers);
       build(threads, 'network');

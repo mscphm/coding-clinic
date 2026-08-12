@@ -68,7 +68,9 @@
  *   clinic_bootstrap       JSON cache of meta.bootstrap
  *   clinic_threads         JSON cache of threads.list, {uid, at, data} — see the
  *                          note on threadsList() for why it is per-user and
- *                          age-capped
+ *                          age-capped. Deleted on sign-out; KEEP_BOARD_ACROSS_SIGNOUT
+ *                          has the trade-off behind keeping it instead, and why
+ *                          that is currently off
  *   clinic_pending_threads JSON {uid, items:[{at, thread}]} of threads this
  *                          browser created that threads.list has not caught up
  *                          on yet — see the note above addPendingThread()
@@ -91,6 +93,10 @@
   var K_EXPIRES = 'clinic_token_expires';
   var K_ISSUED = 'clinic_token_issued';
   var K_BOOT = 'clinic_bootstrap';
+  /* When K_BOOT was last written. Kept as its own key rather than folded into
+     the blob so the shape meta.bootstrap returns stays exactly what the flow
+     sends — every other consumer reads that blob straight through. */
+  var K_BOOT_AT = 'clinic_bootstrap_at';
   var K_THREADS = 'clinic_threads';
   var K_PENDING = 'clinic_pending_threads';
   var SK_LEADERBOARD = 'clinic_leaderboard';
@@ -98,6 +104,14 @@
      only so clearSession() can drop it with everything else. Keep the two
      literals in step — thread.js has the matching comment. */
   var SK_THREAD_VIEW = 'clinic_thread_v1';
+  /* Same arrangement for search-index.js's own board copy: it owns the key, we
+     name it only so clearSession() can drop it. This matters more than it used
+     to — since search-index.js started rebuilding from the 'clinic:threads'
+     event it is written on any page that ships it, not just when someone
+     actually searches, and unlike the localStorage board it carries no uid to
+     guard on. sessionStorage survives a same-tab sign-out, so without this the
+     next person to sign in on that tab could be handed the last person's rows. */
+  var SK_SEARCH_CACHE = 'clinic_search_cache';
 
   /* — is an em dash; escaped so user-visible strings survive any charset. */
   var MSG_NETWORK = "Can't reach the server \u2014 check your connection and try again.";
@@ -217,6 +231,38 @@
 
   /* ---------------------------------------------------------------- session */
 
+  /* ------------------------------- the one knob on the sign-out trade-off ---
+     OFF, deliberately, after review on 2026-08-12. Turning it on makes
+     clearSession() keep the cached board (stripped of viewer-dependent fields
+     by depersonaliseBoard) instead of deleting it, so the same student signing
+     back in gets an instant board rather than a cold ~11 s threads.list.
+
+     It is off because the saving does not pay for what it costs today, and all
+     three costs are fixable — this is a "not yet", not a "never":
+
+     1. booking.js:223 decides which threads are yours with `t.mine === true ||
+        t.author.user_id === myId`, and the flow masks an anonymous thread's
+        author to 'anon' for everybody INCLUDING its author. Strip `mine` and a
+        student whose only question was anonymous is told "No thread, no slot —
+        post your question first" and cannot book, for as long as the stale
+        board is served. A student who cannot book is worse than an 11 s wait.
+     2. The retained blob keeps `uid` next to the `users` directory, so the two
+        together name the person who just signed out. Stripping the directory as
+        well is easy, but it has to be done deliberately.
+     3. V3_CONTRACT.md §10.11 states as load-bearing that this key is cleared by
+        clearSession(), and PRIVACY.md tells students "All of it disappears when
+        they sign out" — in the paragraph advising them to sign out on shared
+        machines. Both documents would have to change first. Code that quietly
+        disagrees with a promise made to students is how the booking bug above
+        would have reached them unnoticed.
+
+     Prerequisites for flipping it: make booking.js recompute on the
+     'clinic:threads' event, strip the users directory too, and update both
+     documents. Until then the cold-load pain it targets is answered instead by
+     login.html warming the cache while the student is still on the sign-in
+     page, which costs nothing and hides nothing. */
+  var KEEP_BOARD_ACROSS_SIGNOUT = false;
+
   function getToken() {
     var token = lsGet(K_TOKEN);
     if (!token) return '';
@@ -243,26 +289,91 @@
     if (expiresAt) lsSet(K_EXPIRES, expiresAt); else lsDel(K_EXPIRES);
   }
 
+  /* The keys in a cached threads.list row that are a function of WHO ASKED
+     rather than of the thread. Checked against the `sel_threads` Select in
+     flows/definitions/app.definition.json rather than assumed: of the eighteen
+     keys that projection emits, exactly one is computed from the caller —
+         "mine": "@equals(string(item()?['author_id']), outputs('my_uid'))"
+     — and it happens to be the one that matters. The flow masks an anonymous
+     thread's `author` to {user_id:'anon', display_name:'Anonymous'} for
+     everybody INCLUDING its author, and then sets `mine` so the author still
+     gets their own accept button. So a cached anonymous row carrying mine:true
+     names the author of a post this project anonymises everywhere else — it is
+     why the leaderboard excludes anonymous content — and it is exactly what a
+     snoop reading localStorage after someone signs out would be looking for.
+
+     Everything else the projection emits is byte-identical no matter who calls:
+     thread_id, title, category, language, labels, the already-masked author,
+     status, pinned, created_at, reply_count, upvotes, accepted, excerpt,
+     locked, duplicate_of, instructor_replied, has_endorsed — as is the `users`
+     directory in the same response, and the row set itself (f_threads filters
+     on `deleted` only, not on role). All of that is cohort-public by
+     construction. Add to this list if the projection ever grows another
+     caller-dependent field. */
+  var PERSONAL_THREAD_FIELDS = ['mine'];
+
+  /* Rewrite the stored board in place so it holds only cohort-public content,
+     keeping the uid so cachedThreads()'s guard still works unchanged. Answers
+     false when that could not be done for ANY reason, and the caller then
+     deletes the key: a half-stripped blob is the one outcome that must never
+     survive, so every doubt resolves towards the old, safe behaviour. */
+  function depersonaliseBoard() {
+    var raw = lsGet(K_THREADS);
+    if (!raw) return true;                   /* nothing cached, nothing to strip */
+    try {
+      var blob = JSON.parse(raw);
+      if (!blob || typeof blob !== 'object' || !blob.data ||
+          Object.prototype.toString.call(blob.data.threads) !== '[object Array]') {
+        return false;
+      }
+      var rows = blob.data.threads, i, j, row;
+      for (i = 0; i < rows.length; i++) {
+        row = rows[i];
+        if (!row || typeof row !== 'object') return false;
+        for (j = 0; j < PERSONAL_THREAD_FIELDS.length; j++) {
+          delete row[PERSONAL_THREAD_FIELDS[j]];
+        }
+      }
+      /* Deliberately NOT writeJSON(): lsSet() swallows a quota or privacy-mode
+         failure, and a swallowed failure here would leave the ORIGINAL blob —
+         flags and all — sitting in storage while we believed we had stripped
+         it. The write has to be allowed to throw so this can report false and
+         the caller can fall back to deleting the key. */
+      window.localStorage.setItem(K_THREADS, JSON.stringify(blob));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function clearSession() {
     lsDel(K_TOKEN);
     lsDel(K_USER);
     lsDel(K_EXPIRES);
     lsDel(K_ISSUED);
+    /* The bootstrap blob is the user's own profile and proficiency, not board
+       content, so there is nothing here to strip down to something shareable. */
     lsDel(K_BOOT);
-    /* The cached board goes with the session. It is namespaced by uid anyway, so
-       leaving it would be safe — but on a shared lab machine "signed out" has to
-       mean the next person sees nothing of the last one, not merely that the
-       code declines to show it. */
-    lsDel(K_THREADS);
-    /* Same argument, and a stronger one: an un-landed post is the one row on
-       the board that is not on the server yet, so nobody else can ever be shown
-       it by accident — but it is also the one row whose author is unambiguous. */
+    lsDel(K_BOOT_AT);
+    /* The board goes with the session. It is namespaced by uid anyway, so
+       leaving it would be safe from the app's point of view — but on a shared
+       lab machine "signed out" has to mean the next person finds nothing of the
+       last one, not merely that the code declines to show it. With
+       KEEP_BOARD_ACROSS_SIGNOUT off, the test short-circuits and
+       depersonaliseBoard() is never called, so this is a plain delete. */
+    if (!KEEP_BOARD_ACROSS_SIGNOUT || !depersonaliseBoard()) lsDel(K_THREADS);
+    /* No equivalent argument for an un-landed post. It is the one row on the
+       board that is not on the server yet, so nobody else can ever be shown it
+       by accident — and it is also the one row whose author is unambiguous, and
+       nothing survives stripping that. */
     lsDel(K_PENDING);
-    /* The two session-scoped view caches. The leaderboard is a list of names
-       and scores and the thread cache holds whole posts, so both are exactly
-       the kind of thing "sign out" has to mean the end of. */
+    /* The session-scoped view caches. The leaderboard is a list of names and
+       scores, the thread cache holds whole posts, and the search cache holds
+       the board rows again with no uid on them, so all three are exactly the
+       kind of thing "sign out" has to mean the end of. */
     ssDel(SK_LEADERBOARD);
     ssDel(SK_THREAD_VIEW);
+    ssDel(SK_SEARCH_CACHE);
   }
 
   function isInstructor() {
@@ -489,19 +600,93 @@
      WHY THE WAITS ARE STEPPED, NOT ONE LONG SLEEP
      The row is usually readable well inside 30 s, so stepping recovers in a
      few seconds in the common case rather than parking every first-time
-     sign-in behind a full-length spinner. Cost is bounded and rare: sign-in
-     puts two authenticated calls in flight (meta.bootstrap, threads.list), so
-     the worst case is 2 x 4 = 8 extra flow runs ONCE per sign-in — nothing
-     against the daily allocation the contract's R22 arithmetic is protecting,
-     and unlike a poller it cannot repeat. Contract §8.3 rule 5 keeps recurring
-     work in Clinic.poll; these are one-shot timers on a single call chain, so
-     they belong here.
+     sign-in behind a full-length spinner.
 
      DELIBERATELY NOT COVERED: a token minted before this code shipped carries
      no stamp, so tokenAgeMs() reports Infinity and the old behaviour stands.
-     That is the safe direction to fail. */
-  var RIPEN_MS = 60000;                             /* ~30 s lag plus headroom */
-  var RIPEN_WAITS = [2000, 4000, 9000, 20000];      /* ≈35 s of retries, then stop */
+     That is the safe direction to fail.
+
+     WHY THE BOUND IS TIME, NOT A COUNT OF ATTEMPTS (changed 2026-08-12).
+     This used to give up after four retries, and that quietly failed the slow
+     third of the distribution — because when the ladder runs out depends on how
+     long the CALL takes, which differs per action, while the thing it is racing
+     (the workbook write becoming readable, measured at 26.5 / 28.4 / 53.7 s) is
+     the same for both. With waits [2,4,9,20] the schedule ran out after four
+     retries, and where that landed in wall-clock depended on how long each
+     attempt took: attempt k is fired at sum(waits before k) + k*D.
+
+     What makes this bite is a fact about the flow rather than about the client.
+     In app.definition.json `chk_auth` sits in the shared prologue, BEFORE
+     `sw_action` — so a run that is going to answer `unauthorized` terminates
+     right after list_sessions and list_users and never reaches the requested
+     action's own reads. Every failing call therefore costs the same ~3 s
+     preamble, whatever was asked for: the 3.2 s / 11 s difference between
+     meta.bootstrap and threads.list exists only on the SUCCESS path. So both
+     ladders ran the same five dispatches and both gave up together at ~50 s —
+     just under the 53.7 s write-lag sample. The student watched a minute of
+     honest progress and was then returned to the email step holding a code that
+     was seconds from working: the exact loop this block exists to break,
+     surviving inside it because the bound was the wrong shape.
+
+     So the bound is now the one the prose above always described: keep asking
+     while the token is YOUNG, stop when it is old enough that `unauthorized`
+     can only mean what it says. RIPEN_WAITS is now only a spacing curve, its
+     last entry repeating for as long as the window allows.
+
+     THE WINDOW IS TESTED AGAINST THE TIME THE RETRY WOULD FIRE, not the time
+     the rejection arrived — withinRipeningWindow() takes the pending wait and
+     adds it to the age. Testing it on arrival would let an answer landing at
+     119.9 s start a 20 s sleep and dispatch at 139.9 s, i.e. RIPEN_MS would not
+     be a ceiling at all but a floor with the terminal wait added on top. That
+     matters beyond tidiness: login.html sizes its own hold against this ceiling,
+     and it can only do that if the number means what it says. See
+     ripenCeilingMs(), which is what login.html actually reads.
+
+     COST, which is what a time bound has to justify. Termination is guaranteed:
+     every cycle advances the clock by at least one wait plus one call, and the
+     age is re-tested each time. The dispatch count is NOT monotonic in D and is
+     highest for the fastest failure — which, per chk_auth above, is the case we
+     are actually in — so RIPEN_MAX_DISPATCHES backstops the curve at 8 rather
+     than letting a sub-second failure reach ten. A cold index.html runs THREE of
+     these chains, not two (meta.bootstrap, threads.list, and unread.js's badge
+     probe against the msg flow), which is why decoration-only reads are exempted
+     from ripening altogether — see NO_RIPEN. Worst case is then two chains x 8
+     dispatches for one sign-in, against a ~40 k/day allocation shared by the
+     cohort. Unlike a poller it cannot repeat on its own; it can only recur if
+     the student signs in again, which mints a fresh stamp and a fresh window.
+     Contract §8.3 rule 5 keeps recurring work in Clinic.poll; these are one-shot
+     timers on a single call chain, so they belong here. */
+  var RIPEN_MS = 120000;              /* lag tail (~54 s) + one ~11 s call + headroom */
+  /* Spacing between attempts. The last entry repeats until RIPEN_MS is reached,
+     so adding or removing entries changes how OFTEN we ask, never how long. */
+  var RIPEN_WAITS = [2000, 4000, 9000, 20000];
+  /* Backstop on the fastest-failure tail, where the time bound alone would allow
+     ten. Counted in DISPATCHES, not retries — `attempt` is the retry index, so
+     testing it directly would permit one more call than this number says, and a
+     constant that overstates what it allows is how the quota arithmetic above
+     goes quietly wrong. Never the binding constraint at realistic durations: at
+     200 ms per failure the eighth dispatch still goes out at ~96 s, long past
+     the 53.7 s the ladder exists to outlast. */
+  var RIPEN_MAX_DISPATCHES = 8;
+  /* Worst-case duration of the one Excel round trip a failing run still makes,
+     from the 10-21 s band this file quotes elsewhere. Only used to state the
+     ceiling conservatively. */
+  var RIPEN_CALL_MAX_MS = 21000;
+
+  /* Latest moment the ladder can still be talking to the server, measured from
+     the token's issue stamp: the last dispatch fires at RIPEN_MS and one call
+     duration passes before its answer. login.html reads this instead of
+     re-deriving it — the two files disagreeing about this number is a bug that
+     has now happened twice. */
+  function ripenCeilingMs() { return RIPEN_MS + RIPEN_CALL_MAX_MS; }
+
+  /* Actions for which a retry is not worth a flow run. unread.js's badge probe
+     documents itself as "One call. NEVER retried" and goes quiet on the first
+     `unauthorized`; ripening it would override that and spend 8 msg-flow runs on
+     a nav decoration during the one window where the quota is most contended.
+     The leaderboard is the same kind of thing — lazy, cached, and cosmetic.
+     What the student is actually waiting for is the board and the bootstrap. */
+  var NO_RIPEN = { 'messages.unread': 1, 'meta.leaderboard': 1 };
 
   function tokenAgeMs() {
     var raw = lsGet(K_ISSUED);
@@ -515,11 +700,28 @@
   /* Young enough that "not found" is more likely to mean "not yet" than "no".
      Never in demo mode: mock-data.js answers from memory, so there is no write
      to be late, and an `unauthorized` there is a real one (a token left behind
-     by a mock reset). Retrying it would park the demo behind a 35 s stall
-     instead of bouncing cleanly to the login page. */
-  function withinRipeningWindow(attempt) {
-    return !isMock() && attempt < RIPEN_WAITS.length &&
-      !!getToken() && tokenAgeMs() < RIPEN_MS;
+     by a mock reset). Retrying it would park the demo behind a stall instead of
+     bouncing cleanly to the login page. */
+  /* True while a token is young enough that `unauthorized` is better read as
+     "the workbook has not published the session row yet" than as "no". */
+  function tokenIsRipening() {
+    return !isMock() && !!getToken() && tokenAgeMs() < RIPEN_MS;
+  }
+
+  function withinRipeningWindow(action, attempt, waitMs) {
+    if (isMock() || NO_RIPEN[action] === 1) return false;
+    if ((attempt + 1) >= RIPEN_MAX_DISPATCHES) return false;   /* attempt is 0-based */
+    /* The age that matters is the one the RETRY would go out at, not the one it
+       came back at — otherwise the terminal wait lands outside the window. */
+    return !!getToken() && (tokenAgeMs() + (waitMs || 0)) < RIPEN_MS;
+  }
+
+  /* Hold the last spacing once the schedule is used up, so the ladder keeps
+     asking at a sensible interval for the rest of the window instead of ending
+     wherever the array happened to stop. */
+  function ripenWaitMs(attempt) {
+    var i = attempt < RIPEN_WAITS.length ? attempt : RIPEN_WAITS.length - 1;
+    return RIPEN_WAITS[i];
   }
 
   function delay(ms) {
@@ -541,11 +743,25 @@
     }, function (raw) {
       var err = toApiError(raw);
       if (err.code === 'unauthorized') {
-        if (withinRipeningWindow(attempt)) {
-          return delay(RIPEN_WAITS[attempt]).then(function () {
+        var wait = ripenWaitMs(attempt);
+        if (withinRipeningWindow(action, attempt, wait)) {
+          return delay(wait).then(function () {
             return dispatch(action, data, attempt + 1);
           });
         }
+        /* A decoration-only read that comes back unauthorized while the token is
+           STILL RIPENING must not be the call that declares the session dead.
+           Exempting it from the ladder saves the quota it would spend retrying,
+           but on a cold index.html its chain runs alongside the board's and the
+           bootstrap's — and against the msg flow, whose chk_auth fires earliest,
+           so it fails FIRST. Letting it fall through to clearSession() would
+           destroy the very token those two are legitimately still retrying with,
+           and bounceToLogin() would navigate off the page mid-warm: a nav badge
+           would have ended the sign-in. So it goes quiet instead, exactly as
+           unread.js's own unauthorized handler intends, and leaves the verdict on
+           the session to the calls the student is actually waiting for. Past the
+           window there is nothing left to protect and it behaves normally. */
+        if (NO_RIPEN[action] === 1 && tokenIsRipening()) throw err;
         clearSession();
         bounceToLogin();
       }
@@ -720,6 +936,7 @@
   function storeBootstrap(boot) {
     if (!boot || !boot.config) return boot;
     writeJSON(K_BOOT, boot);
+    lsSet(K_BOOT_AT, String(Date.now()));
     if (boot.user) setUser(boot.user);
     fireBootstrapEvent(boot);
     return boot;
@@ -734,6 +951,36 @@
     return call('meta.bootstrap', {}).then(storeBootstrap);
   }
 
+  /* ------------------------------------------- the bootstrap revalidate floor
+     threads.list has had one since v3.3 (REVALIDATE_MIN_AGE_MS below); this is
+     the same idea applied to the other half of a page load, and it was costing
+     a flow run on EVERY navigation. bootstrap() used to return the cache and
+     then fire refreshBootstrap() unconditionally, so a student clicking board →
+     thread → back → thread spent a ~3.2 s meta.bootstrap on each hop to re-read
+     config that changes when the instructor edits the workbook, i.e. hardly
+     ever. On a ~40 k/day allocation shared by the whole cohort that is the
+     cheapest run in the system to stop making.
+
+     It also makes login.html's warm-up honest. Priming the cache there would
+     otherwise have turned index.html's single cold fetch into a cache hit PLUS
+     an unconditional background refresh — two runs where there was one, on
+     every sign-in, which is the opposite of the point.
+
+     60 s is chosen against what the payload actually is: config (site title,
+     notice, categories, clinic times) and the caller's own profile. A change
+     to any of those showing up one minute late is invisible; the instructor
+     editing the notice mid-class still sees it on their next navigation. */
+  var BOOT_REVALIDATE_MIN_AGE_MS = 60000;
+
+  function bootstrapAgeMs() {
+    var raw = lsGet(K_BOOT_AT);
+    if (!raw) return Infinity;              /* stamped by an older build: refresh */
+    var t = parseInt(raw, 10);
+    if (isNaN(t)) return Infinity;
+    var age = Date.now() - t;
+    return age < 0 ? Infinity : age;        /* clock moved backwards; do not trust it */
+  }
+
   /* Pages call this. Returns instantly from cache when we have one, and quietly
      refreshes in the background — listen for the 'clinic:bootstrap' window event
      if you want to re-render when newer config lands (e.g. the instructor
@@ -741,7 +988,7 @@
   function bootstrap() {
     var cached = cachedBootstrap();
     if (cached) {
-      if (getToken()) {
+      if (getToken() && bootstrapAgeMs() >= BOOT_REVALIDATE_MIN_AGE_MS) {
         refreshBootstrap()['catch'](function () { /* silent; unauthorized already bounced */ });
       }
       return Promise.resolve(cached);
@@ -779,7 +1026,9 @@
         from presenting stale data as current for a week — the failure mode there
         is silence, so the cache must not help it stay silent.
      3. CLEARED ON SIGN-OUT by clearSession(), alongside the token, the user and
-        the bootstrap blob.
+        the bootstrap blob. KEEP_BOARD_ACROSS_SIGNOUT in the session section has
+        the case for keeping a stripped copy instead, and the three things that
+        must be fixed before that would be safe.
 
      Concurrent refreshes need no guard here: 'threads.list' is already in
      DEDUPE, so two callers share one in-flight request. */
@@ -1173,6 +1422,13 @@
     threadsList: threadsList,
     refreshThreads: refreshThreads,
     cachedThreads: cachedThreads,
+    /* Exported for search-index.js, which builds its index straight off the
+       cached board and has to know whether that board is minutes or hours old
+       before trusting it for duplicate detection. */
+    cachedThreadsAgeMs: cachedThreadsAgeMs,
+    /* Exported for login.html, which holds the student while the board warms and
+       must not give up while the ripening ladder is still working. */
+    ripenCeilingMs: ripenCeilingMs,
     leaderboard: leaderboard,
     addPendingThread: addPendingThread,
     pendingThreads: pendingThreads,
