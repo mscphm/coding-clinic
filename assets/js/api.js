@@ -1054,7 +1054,36 @@
   /* Only a payload we recognise is ever written. A `threads` array is the one
      key index.js cannot work without, and caching an error envelope or a
      half-shaped response would be worse than caching nothing. */
+  /* ------------------------------------- the bootstrap riding on the board ---
+     threads.list can answer the bootstrap payload too, under `boot`. When it does,
+     opening the board costs ONE flow run instead of two - both used to pay the same
+     ~24-action prologue and its three Excel reads, and the daily request quota is
+     shared across the whole cohort, so halving that is worth more than it looks.
+
+     Handled here rather than in each page so a caller cannot forget: any code path
+     that lands a threads.list also lands the bootstrap.
+
+     `boot` is deliberately NOT kept in the board blob. It holds the caller's own
+     profile, and the board cache is cohort-public content that other code reads and
+     reasons about; the bootstrap has its own uid-keyed key and its own lifecycle.
+
+     An OLDER flow simply omits the key, and everything below no-ops - which is what
+     makes this safe to deploy BEFORE the flow that produces it. */
+  function absorbMergedBootstrap(list) {
+    if (!list || !list.boot || !list.boot.config) return list;
+    var boot = list.boot;
+    var rest = {}, k;
+    for (k in list) {
+      if (Object.prototype.hasOwnProperty.call(list, k) && k !== 'boot') rest[k] = list[k];
+    }
+    /* storeBootstrap stamps K_BOOT_AT, so the 60 s revalidate floor treats this
+       exactly like a real meta.bootstrap answer - which it is. */
+    try { storeBootstrap(boot); } catch (e) { /* board must not depend on it */ }
+    return rest;
+  }
+
   function storeThreads(list) {
+    list = absorbMergedBootstrap(list);
     if (!list || Object.prototype.toString.call(list.threads) !== '[object Array]') {
       return list;
     }

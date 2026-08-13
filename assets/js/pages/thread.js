@@ -612,6 +612,22 @@
   var PENDING_THREAD_MSG = 'Just posted — this question is still saving. Give it a few seconds.';
   var RECONCILE_DELAY_MS = 30000;
   var reconcileTimer = null;     /* one-shot, never stacked                   */
+  /* Accept gets its OWN reconcile, on its own clock, for two reasons the reply
+     reconcile does not have to deal with.
+     1. TIMING. threads.accept performs its writes AFTER responding, and an Excel
+        write is not readable for 26-54 s (measured), so a check at
+        RECONCILE_DELAY_MS would read the workbook BEFORE the accept could
+        possibly be visible.
+     2. WHAT A MISS MEANS. armReconcile() absorbs whatever the server says. Doing
+        that here on an early read would overwrite the accept the student can see
+        with a payload that predates it - the UI would visibly un-accept the
+        answer moments before the write lands, which is worse than not checking
+        at all. So this one VERIFIES before it absorbs, and only reports a
+        failure after a second miss. */
+  var acceptReconcileTimer = null;
+  var acceptReconcileFor = null;     /* which post the pending chain is verifying */
+  var ACCEPT_RECONCILE_MS = 75000;   /* past the 53.7 s tail + the deferral     */
+  var ACCEPT_RECHECK_MS = 45000;     /* one more chance before blaming the write */
   var threadPending = false;     /* the thread row itself is not readable yet */
   var uploadDetach = null;       /* D11: teardown from the last uploads.attach */
 
@@ -1101,6 +1117,9 @@
         render();
         flash(postId);
         toast('Marked as the answer.', 'success');
+        /* The flow answers before it writes, so verify it landed. See
+           armAcceptReconcile() for why this cannot reuse armReconcile(). */
+        armAcceptReconcile(postId);
       })['catch'](function (e) {
         busy = false;
         if (btn) btn.disabled = false;
@@ -1483,6 +1502,89 @@
         if (modelSig() !== before) quietRender();
       })['catch'](function () { /* quiet: the write already succeeded */ });
     }, RECONCILE_DELAY_MS);
+  }
+
+  /* ==========================================================================
+   * armAcceptReconcile() — check that a deferred accept actually landed
+   * ---------------------------------------------------------------------------
+   * threads.accept answers before it writes, so "Marked as the answer." is a
+   * prediction until the row is readable. This is what keeps it honest: one
+   * check once the write must have landed, one more if it has not, and only
+   * then does it say so and put the UI back.
+   *
+   * Silence on agreement is deliberate — the overwhelmingly common case is that
+   * the write landed and there is nothing to tell anybody.
+   * ========================================================================*/
+  function armAcceptReconcile(postId) {
+    /* Keyed by POST, not by "is a timer running". Accepting a second answer while
+       the first check is pending is an ordinary thing to do, and the naive guard
+       got it exactly backwards: it dropped the new chain and let the old one run
+       to completion, so the post that mattered went unverified while the one the
+       instructor had deliberately superseded produced a false "did not save".
+       A newer accept supersedes an older one; the older chain retires silently on
+       its own identity check rather than on a shared handle it may not own. */
+    if (acceptReconcileTimer) { clearTimeout(acceptReconcileTimer); }
+    acceptReconcileTimer = null;
+    acceptReconcileFor = postId;
+
+    var writeStrikes = 2;   /* reads that SUCCEEDED and still disagreed */
+    var readTries = 3;      /* reads that never gave us an answer at all */
+
+    /* T6 leaves the promote and the repoint as separate writes, in that order, so
+       "accepted_post_id points at me" alone is not proof: the repoint can land
+       while the promote did not, and vice versa. Require both, or the check is
+       blind to precisely the partial failure the reorder was designed to leave
+       behind as the recoverable one. */
+    function landed(d) {
+      if (!d || !d.thread) return false;
+      if (String(d.thread.accepted_post_id || '') !== String(postId)) return false;
+      var ok = false;
+      (d.posts || []).forEach(function (p) {
+        if (String(p.post_id) === String(postId) && truthy(p.is_accepted)) ok = true;
+      });
+      return ok;
+    }
+
+    function retryRead() {
+      readTries -= 1;
+      if (readTries > 0) schedule(ACCEPT_RECHECK_MS);
+    }
+
+    function run() {
+      acceptReconcileTimer = null;
+      if (acceptReconcileFor !== postId) return;        /* superseded */
+      API().call('threads.get', { thread_id: threadId }).then(function (d) {
+        if (acceptReconcileFor !== postId) return;
+        /* An unreadable answer is NOT evidence the write failed. Since the flow
+           now absorbs a failed deferred write server-side (so the run stays
+           Succeeded and nothing reaches the client), this reconcile is the only
+           detector left — one 502 must not be allowed to switch it off. */
+        if (!d || !d.thread) { retryRead(); return; }
+        if (landed(d)) {
+          acceptReconcileFor = null;
+          var before = modelSig();
+          absorbServer(d);
+          if (modelSig() !== before) quietRender();
+          return;
+        }
+        writeStrikes -= 1;
+        if (writeStrikes > 0) { schedule(ACCEPT_RECHECK_MS); return; }
+        /* The server answered, twice, well past the write-visibility window, and
+           still disagrees. Show its truth rather than leave a tick that is not
+           backed by a row. */
+        acceptReconcileFor = null;
+        absorbServer(d);
+        quietRender();
+        toast('That answer did not save — please mark it again.', 'error');
+      }, function () {
+        if (acceptReconcileFor !== postId) return;
+        retryRead();                                    /* read failed, not the write */
+      });
+    }
+
+    function schedule(ms) { acceptReconcileTimer = setTimeout(run, ms); }
+
+    schedule(ACCEPT_RECONCILE_MS);
   }
 
   /* ==========================================================================

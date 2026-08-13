@@ -333,8 +333,7 @@
        the caller should just redirect the way it always did. */
     function warmThenLeave() {
       var api = (window.Clinic && window.Clinic.api) || null;
-      if (!api || typeof api.refreshThreads !== 'function' ||
-          typeof api.refreshBootstrap !== 'function') return false;
+      if (!api || typeof api.refreshThreads !== 'function') return false;
 
       /* Warm re-login: the board this student left is still cached and still
          theirs (cachedThreads checks the user id and the age itself), so there
@@ -463,13 +462,18 @@
       }
       timers.push(window.setTimeout(go, warmCapMs()));
 
-      /* The bootstrap is the optional half — if it fails, index.html asks again
-         and the student is no worse off than before this block existed. */
-      try {
-        var pb = Promise.resolve(api.refreshBootstrap());
-        warmCalls.push(pb);
-        pb['catch'](function () { /* index will re-ask */ });
-      } catch (e) { /* ignore; the board is what we are actually waiting for */ }
+      /* The bootstrap is NOT fetched here any more. threads.list now answers it
+         too, under `boot`, and api.js's storeThreads() seeds the bootstrap cache
+         from it — so asking for it separately would spend a second flow run on a
+         payload the first one already carried, which is the whole point of the
+         merge. index.html then finds both caches warm and issues nothing.
+
+         Against a flow that predates the merge this still degrades correctly:
+         `boot` is simply absent, nothing is seeded, and index.html fetches the
+         bootstrap on arrival exactly as it does for any non-login entry — one
+         ~3 s call, with the board already painted from cache. That is the only
+         cost of deploying this page before the flow, and it lasts until the
+         import. */
 
       /* Resolve OR reject leaves. The two rejections are not the same thing and
          go() tells them apart: a transport failure (throttle, 502, 504) leaves
