@@ -781,8 +781,21 @@
      the flow is not wrong, it is blind. The only place the second write can be
      prevented is here, by not issuing it. The button therefore stays disabled
      until the write must have landed, and says so. Keyed by target rather than
-     by element because a re-render builds a new button for the same target. */
-  var VOTE_SETTLE_MS = 45000;
+     by element because a re-render builds a new button for the same target.
+
+     WHY 75 s AND NOT THE ORIGINAL 45 s (raised 2026-08-12).
+     45 s never covered the distribution it was sized against — the worst of the
+     three measurements above is 53.7 s, so the window closed a good ten seconds
+     before the slowest observed write became readable, and a second click in
+     that gap double-counted the voter. Two things then made it worse rather
+     than better: the timer starts when the RESPONSE arrives, and votes.toggle
+     now performs its write AFTER responding (the deferred-write pass), so the
+     row is issued a few seconds later still. 75 s covers the measured tail plus
+     the deferral plus margin.
+     THIS FLOOR AND THE FLOW ARE COUPLED: it must be deployed BEFORE the flow
+     package that defers the write, per the site-first rule in V3_CONTRACT, or
+     there is a window in which the button re-arms earlier than the row lands. */
+  var VOTE_SETTLE_MS = 75000;
 
   function voteSettleLeft(targetId) {
     var until = voteSettleUntil[targetId] || 0;
