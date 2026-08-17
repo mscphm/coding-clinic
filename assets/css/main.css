@@ -1884,6 +1884,29 @@ a.comment-author:hover { color: var(--nus-orange); text-decoration: none; }
   border-color: var(--border-muted);
   transform: none;
 }
+/* .is-saving — the vote is on this screen but the shared workbook has not
+   acknowledged it yet (thread.js's vote scheduler). It must stay FULLY
+   INTERACTIVE: this replaced a button that disabled itself for 75 seconds,
+   which students read as the site having frozen. So the cue is a soft pulse on
+   the border and nothing else — no dimming, no cursor change, no opacity, none
+   of the vocabulary of "you cannot use this". */
+.vote-btn.is-saving { animation: vote-saving 1.8s ease-in-out infinite; }
+.vote-btn.is-saving.voted { animation: vote-saving-on 1.8s ease-in-out infinite; }
+@keyframes vote-saving {
+  0%, 100% { border-color: var(--border-default); }
+  50%      { border-color: var(--nus-orange); }
+}
+@keyframes vote-saving-on {
+  0%, 100% { box-shadow: 0 2px 8px rgba(255, 107, 53, 0.25); }
+  50%      { box-shadow: 0 2px 8px rgba(255, 107, 53, 0.25), 0 0 0 3px rgba(255, 107, 53, 0.22); }
+}
+/* A pulse that never stops is exactly what a vestibular-sensitivity setting is
+   asking us not to draw. The state still needs to be visible, so it degrades to
+   a static tint rather than to nothing at all. */
+@media (prefers-reduced-motion: reduce) {
+  .vote-btn.is-saving, .vote-btn.is-saving.voted { animation: none; }
+  .vote-btn.is-saving { border-color: var(--nus-orange); }
+}
 
 .accept-btn {
   display: inline-flex;

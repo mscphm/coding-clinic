@@ -626,7 +626,12 @@
     view = 'conv';
     conv = { conversation_id: cid, other: other || {} };
     rows = [];
-    pending = [];
+    /* NOT `pending = []`. Anything this browser is still holding for this
+       conversation — in flight when the last page unloaded, or failed and never
+       retried — belongs on screen the moment the conversation opens, ahead of
+       the ~15 s messages.get. mergeServerRows() retires each one by
+       client_msg_id as the server admits to it. */
+    pending = pendingLoad(cid);
     stalled = false;
     if (els) {
       els.back.hidden = !(convs.length > 1 || isInstructor());
@@ -798,8 +803,155 @@
 
   function dropPending(cmid) {
     for (var i = 0; i < pending.length; i++) {
-      if (pending[i].client_msg_id === cmid) { pending.splice(i, 1); return; }
+      if (pending[i].client_msg_id === cmid) {
+        pending.splice(i, 1);
+        pendingSave();
+        return;
+      }
     }
+  }
+
+  /* ==========================================================================
+   * PERSISTING THE OPTIMISTIC BUBBLE
+   * -------------------------------------------------------------------------
+   * `pending` used to live only in this closure, and this closure is destroyed
+   * by every navigation — the panel is per-page, and showList()/destroy() reset
+   * the array outright. messages.send takes 10-21 s. So the ordinary sequence
+   * of "type a reply, press send, carry on reading the board" made the message
+   * vanish: no bubble, no error, nothing, until the next poll noticed it up to
+   * 90 s later. The student's reading of that is not "it is still sending", it
+   * is "it did not send", and the natural response is to type it again.
+   *
+   * It is the same defect as the un-landed vote and the un-landed thread, so it
+   * gets the same treatment and the same three rules — namespaced by uid, TTL'd,
+   * and cleared on sign-out (api.js's clearSession names this key; keep the two
+   * literals in step). Reconciliation is by client_msg_id, ALWAYS, exactly as
+   * mergeServerRows() already does: never by body text, because two identical
+   * "thanks!" messages are an entirely ordinary thing to send.
+   *
+   * FAILED SENDS ARE PERSISTED TOO, and that is the more valuable half. A failed
+   * bubble holds text the student wrote and the site could not deliver; dropping
+   * it on navigation destroys their words. Retrying re-uses the SAME
+   * client_msg_id — messages.send filters tbl_Messages on it and answers
+   * duplicate:true rather than posting twice — so a retry after a reload is
+   * safe even if the original had in fact landed.
+   *
+   * sessionStorage, NOT localStorage, and deliberately — pages/messages.js has
+   * persisted ITS pending sends this way since v3 and the two should not
+   * disagree about where private chat lives. sessionStorage already survives
+   * the thing that was actually losing messages (a navigation inside the tab),
+   * and it additionally dies with the tab, which for the most private content
+   * on this site is a feature rather than a limitation. The only case it gives
+   * up on is a failed message the student wants to retry after closing the
+   * browser, which is not worth writing someone's private message to disk for.
+   *
+   * Thirty minutes on top of that. Long enough to come back to a failed message
+   * from another page, short enough that a send which never lands cannot haunt
+   * the panel for the rest of the day. sessionStorage throws outright in some
+   * privacy modes; every access is wrapped and every failure degrades to
+   * today's behaviour, i.e. in-memory only.
+   * ======================================================================*/
+  var PENDING_KEY = 'clinic_pending_msgs_v1';   /* == api.js clearSession() */
+  var PENDING_TTL_MS = 30 * 60 * 1000;
+
+  function pendingRaw() {
+    try { return window.sessionStorage.getItem(PENDING_KEY); } catch (e) { return null; }
+  }
+
+  function pendingUid() {
+    try {
+      var a = api();
+      var u = (typeof a.getUser === 'function') ? a.getUser() : null;
+      return (u && u.user_id) ? String(u.user_id) : '';
+    } catch (e) { return ''; }
+  }
+
+  function pendingBox() {
+    var blob;
+    try { blob = JSON.parse(pendingRaw() || 'null'); }
+    catch (e) { return {}; }
+    if (!blob || typeof blob !== 'object') return {};
+    if (String(blob.uid || '') !== pendingUid()) { pendingWipe(); return {}; }
+    var items = (blob.items && typeof blob.items === 'object') ? blob.items : {};
+    var now = Date.now(), out = {}, dirty = false, k, list, keep, i, e0;
+    for (k in items) {
+      if (!Object.prototype.hasOwnProperty.call(items, k)) continue;
+      list = items[k];
+      if (Object.prototype.toString.call(list) !== '[object Array]') { dirty = true; continue; }
+      keep = [];
+      for (i = 0; i < list.length; i++) {
+        e0 = list[i];
+        if (!e0 || !e0.client_msg_id || !e0.body_md) { dirty = true; continue; }
+        if (!(Number(e0.at) > 0) || (now - Number(e0.at)) > PENDING_TTL_MS) { dirty = true; continue; }
+        keep.push(e0);
+      }
+      if (keep.length) out[k] = keep; else dirty = true;
+    }
+    if (dirty) pendingBoxWrite(out);
+    return out;
+  }
+
+  function pendingBoxWrite(box) {
+    var k, any = false;
+    for (k in box) { if (Object.prototype.hasOwnProperty.call(box, k)) { any = true; break; } }
+    try {
+      if (!any) window.sessionStorage.removeItem(PENDING_KEY);
+      else window.sessionStorage.setItem(PENDING_KEY,
+        JSON.stringify({ uid: pendingUid(), items: box }));
+    } catch (e) { /* quota or private mode */ }
+  }
+
+  function pendingWipe() {
+    try { window.sessionStorage.removeItem(PENDING_KEY); } catch (e) { /* ignore */ }
+  }
+
+  /* Write the CURRENT conversation's in-memory array through to the store.
+     Called after every mutation of `pending`. A null `conv` means the panel is
+     showing the inbox or has been torn down — the in-memory array is cleared in
+     both cases and must NOT be written back over what is stored. */
+  function pendingSave() {
+    if (!conv || !conv.conversation_id) return;
+    var box = pendingBox();
+    var cid = String(conv.conversation_id);
+    if (pending.length) box[cid] = pending; else delete box[cid];
+    pendingBoxWrite(box);
+  }
+
+  function pendingLoad(cid) {
+    var list = pendingBox()[String(cid)];
+    if (Object.prototype.toString.call(list) !== '[object Array]') return [];
+
+    /* A restored entry that is not marked failed was IN FLIGHT when the page
+       unloaded, and that request died with the page. Its true state is "we do
+       not know": it may have reached the workbook, it may not, and nothing on
+       this side can tell the difference — messages.get cannot see a write for
+       ~30 s either way.
+
+       So it is presented as unknown, with the retry the panel already draws for
+       a failed send, and it is NOT resent automatically. Resending would be
+       CORRECT — messages.send filters tbl_Messages on client_msg_id and answers
+       duplicate:true rather than writing twice — but it costs SEVEN flow calls,
+       the most expensive action on the site, out of a daily allocation shared
+       with sign-in (see the arithmetic at the top of this file). Spending that
+       on every conversation open, on a message that has very probably landed
+       and will be confirmed by the next poll for nothing, is the wrong trade.
+       Left alone, the common case resolves itself silently: the poll returns
+       the real message, mergeServerRows() matches the client_msg_id and the
+       bubble is replaced. The student only pays if they choose to. */
+    var changed = false;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && !list[i].failed) {
+        list[i].failed = true;
+        list[i].error = 'Not sure that sent. ';
+        changed = true;
+      }
+    }
+    if (changed) {
+      var box = pendingBox();
+      box[String(cid)] = list;
+      pendingBoxWrite(box);
+    }
+    return list;
   }
 
   /* ------------------------------------------------------------------ send */
@@ -817,12 +969,20 @@
       client_msg_id: newClientMsgId(),
       body_md: body,
       created_at: new Date().toISOString(),
+      /* `at` is the store's own clock, kept separate from created_at: that one
+         is the message's timestamp and is overwritten by the server's on
+         acknowledgement, while this one only ever means "when this browser
+         started holding it", which is what the TTL is measured against. */
+      at: Date.now(),
       failed: false,
       error: ''
     };
     els.textarea.value = '';
     autoGrow();
     pending.push(entry);
+    /* Persisted BEFORE the request is issued. The whole point is to survive the
+       student navigating away while it is still in flight. */
+    pendingSave();
     renderThread(false);
     postPending(entry);
   }
@@ -831,6 +991,7 @@
     if (!entry) return;
     entry.failed = false;
     entry.error = '';
+    pendingSave();
     renderThread(true);
     /* The SAME client_msg_id, deliberately. messages.send filters tbl_Messages
        on it before writing and returns duplicate:true rather than posting twice,
@@ -875,6 +1036,10 @@
       entry.error = (err && err.code === 'network')
         ? 'Not sure that sent. '
         : (errText(err) + ' ');
+      /* Persist the failure, not just the attempt: this bubble now holds text
+         the student wrote and the site did not deliver, and it must survive
+         them navigating away to go and check something. */
+      pendingSave();
       renderThread(true);
     });
   }

@@ -19,6 +19,21 @@
         if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
       } catch (e) { /* storage unavailable */ }
     })();
+
+    /* Register the service worker (sw.js). It caches ONLY the static shell —
+       css, js, vendor bundles — and is excluded from every API call twice over
+       (GET-only, same-origin-only). See sw.js for why those exclusions are not
+       negotiable.
+
+       On 'load', so it never competes with the first paint, and wrapped because
+       serviceWorker is absent over plain http: and in some privacy modes. Every
+       failure is silent and total: no worker, no asset cache, site unchanged. */
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+      window.addEventListener('load', function () {
+        try { navigator.serviceWorker.register('sw.js'); } catch (e) { /* unsupported */ }
+      });
+    })();
   </script>
 </head>
 <body>

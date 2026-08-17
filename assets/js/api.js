@@ -25,6 +25,15 @@
  *                                               board while Excel catches up
  *   pendingThreads()          -> [thread]       the ones still not landed
  *   pendingThreadById(id)     -> thread|null    ditto, one of them
+ *   setPendingVote(type, id, on, baseOn, baseCount)
+ *                                               remember an upvote Excel cannot
+ *                                               see yet, so it survives a
+ *                                               navigation (v3.4)
+ *   pendingVote(id)           -> entry|null     {on, base_on, base_count, ...}
+ *   clearPendingVote(id)      -> bool
+ *   reconcilePendingVote(id, serverOn)
+ *                             -> bool           retire it once threads.get's
+ *                                               my_votes agrees with intent
  *   activeCallCount()         -> number         requests in flight right now;
  *                                               'clinic:activity' fires on change
  *   cachedThreads()           -> list|null      whatever is in localStorage,
@@ -99,11 +108,26 @@
   var K_BOOT_AT = 'clinic_bootstrap_at';
   var K_THREADS = 'clinic_threads';
   var K_PENDING = 'clinic_pending_threads';
+  /* Un-landed UPVOTES, same store discipline as K_PENDING. See "the pending
+     vote store" below for why a vote needs one at all. */
+  var K_VOTES = 'clinic_pending_votes';
   var SK_LEADERBOARD = 'clinic_leaderboard';
   /* Owned and written by pages/thread.js (its threads.get cache); named here
      only so clearSession() can drop it with everything else. Keep the two
-     literals in step — thread.js has the matching comment. */
-  var SK_THREAD_VIEW = 'clinic_thread_v1';
+     literals in step — thread.js has the matching comment.
+
+     K_, NOT SK_, SINCE 2026-08-17. This cache used to live in sessionStorage
+     with a three-minute TTL, which meant it only ever paid off inside a single
+     tab, inside a single sitting: a new tab, or coming back to a thread six
+     minutes later, was a cold 7-21 s spinner for a payload this browser had
+     already been given. It is localStorage now, and thread.js's TTL went to
+     thirty minutes to match. Nothing about the freshness guarantee changed —
+     boot() ALWAYS issues the real threads.get regardless of a cache hit, so
+     the cached copy is a first paint and never an answer. clearSession() still
+     drops it, which is what makes a longer life safe on a shared machine; the
+     delete below is lsDel now, and a stray sessionStorage copy from a browser
+     that ran the old build is dropped too so sign-out stays total. */
+  var K_THREAD_VIEW = 'clinic_thread_v1';
   /* Same arrangement for search-index.js's own board copy: it owns the key, we
      name it only so clearSession() can drop it. This matters more than it used
      to — since search-index.js started rebuilding from the 'clinic:threads'
@@ -367,13 +391,31 @@
        by accident — and it is also the one row whose author is unambiguous, and
        nothing survives stripping that. */
     lsDel(K_PENDING);
-    /* The session-scoped view caches. The leaderboard is a list of names and
-       scores, the thread cache holds whole posts, and the search cache holds
-       the board rows again with no uid on them, so all three are exactly the
-       kind of thing "sign out" has to mean the end of. */
+    /* Same argument again for an un-landed vote: it is one bit about one row,
+       it is not on the server yet, and it is unambiguously this user's. */
+    lsDel(K_VOTES);
+    /* The view caches. The leaderboard is a list of names and scores, the
+       thread cache holds whole posts, and the search cache holds the board rows
+       again with no uid on them, so all three are exactly the kind of thing
+       "sign out" has to mean the end of.
+
+       The thread cache is deleted from BOTH stores: it moved to localStorage on
+       2026-08-17, and a browser that has run the older build still has the
+       sessionStorage copy sitting there. Deleting a key that is not there costs
+       nothing; leaving one behind on a shared lab machine does. */
     ssDel(SK_LEADERBOARD);
-    ssDel(SK_THREAD_VIEW);
+    lsDel(K_THREAD_VIEW);
+    ssDel(K_THREAD_VIEW);
     ssDel(SK_SEARCH_CACHE);
+    /* Owned and written by pages/booking.js, named here for the same reason as
+       the two above: a cached slot grid carries my_booking, which is a name, a
+       phone number and an email address. Keep the literal in step with
+       booking.js's SLOTS_CACHE_KEY. */
+    lsDel('clinic_slots_v1');
+    /* Owned by chat-panel.js — un-sent chat messages, which are the most
+       obviously private thing this site holds locally. sessionStorage, matching
+       pages/messages.js. Keep in step with chat-panel.js's PENDING_KEY. */
+    ssDel('clinic_pending_msgs_v1');
   }
 
   function isInstructor() {
@@ -779,9 +821,17 @@
      Refresh. Both are pure reads with an empty payload, so collapsing them is free.
      'messages.get' is deliberately NOT here — its `since` differs on every tick, so
      the signature would never match anyway, and a stale collapse there would hide a
-     poll that actually needed to run (contract §10.8). */
+     poll that actually needed to run (contract §10.8).
+
+     v3.4 adds 'threads.get'. It was left out while thread.js was its only caller
+     and called it once per page load, which made the entry dead weight. The
+     board's hover prefetch changes that: a prefetch and the real page load can
+     now legitimately want the SAME thread_id within a second or two of each
+     other, and without an entry here the click would pay for a second 6-read
+     flow run while the first was still in the air. The signature includes the
+     payload, so two different threads never collapse into one. */
   var DEDUPE = {
-    'meta.bootstrap': 1, 'threads.list': 1,
+    'meta.bootstrap': 1, 'threads.list': 1, 'threads.get': 1,
     'messages.unread': 1, 'messages.list': 1
   };
   var inFlight = {};
@@ -1242,8 +1292,20 @@
      flagged `_pending` so index.js can say "posting" rather than pretend the
      row is settled. Never mutates its argument: the caller may be holding the
      cached blob itself. The leading underscore marks it as client-side only —
-     nothing on the wire ever carries it. */
+     nothing on the wire ever carries it.
+
+     TWO overlays, not one, since the pending vote store landed: the rows are
+     merged here and the counts are adjusted by applyPendingVotes(). They are
+     independent — a board with no un-landed thread on it can still be carrying
+     an un-landed vote — so the vote pass runs on EVERY exit path, including
+     both early returns. Getting that wrong is silent: the common case is
+     exactly "no pending threads, one pending vote", i.e. the first early
+     return, and the vote overlay would simply never have been applied. */
   function withPending(list) {
+    return applyPendingVotes(withPendingThreads(list));
+  }
+
+  function withPendingThreads(list) {
     var items = pendingRead();
     if (!items.length) return list;
     var seen = idSet(list);
@@ -1260,6 +1322,253 @@
     var out = {};
     for (k in list) { if (Object.prototype.hasOwnProperty.call(list, k)) out[k] = list[k]; }
     out.threads = extra.concat((list && list.threads) || []);
+    return out;
+  }
+
+  /* ----------------------------------------------- the pending vote store ---
+
+     THE COMPLAINT THIS EXISTS TO ANSWER: "I upvoted an answer, went back to the
+     board and opened it again — my upvote had gone. Did it not register?"
+
+     It registered. thread.js has painted the new state optimistically since v3,
+     but that paint lived in a page-local `voted` object and in nothing else, so
+     it died on navigation — and the two things that redraw the page after a
+     navigation both disagree with it for the best part of a minute:
+
+       * threads.get returns `my_votes`, and absorb() rebuilds `voted` from it
+         from scratch. An Excel write is not readable for ~30-50 s, so for that
+         whole window the server's honest answer is "you have not voted", and
+         the optimistic paint is overwritten by it.
+       * WORSE, thread.js then CACHES that payload. So the stale "you have not
+         voted" was pinned for the life of the cache entry, and the student's
+         own vote stayed invisible long after the row had actually landed.
+       * The board is the same story one level up: index.js draws `t.upvotes`
+         off the cached threads.list, which is believed for the revalidate floor
+         (75 s) and can be up to twelve hours old.
+
+     So the vote gets the same treatment threads.create and posts.create already
+     get, and for exactly the same reason: the write HAS happened, only the read
+     has not caught up, and the UI must not turn a truthful delay into a lost
+     action. THE SAME THREE RULES apply, unchanged — namespaced by uid so a
+     shared lab machine never leaks one student's vote onto the next student's
+     screen, TTL'd so a vote that never lands cannot haunt the page, and cleared
+     on sign-out with everything else.
+
+     WHAT IS STORED PER TARGET
+       on          what the student wants the state to be. This is INTENT, not a
+                   record of a request: a second click inside the settle window
+                   flips it again without sending anything (see thread.js's vote
+                   scheduler), and it is what both pages paint.
+       base_on     what the server said before the first click. Only meaningful
+                   for a thread/post the viewer has open.
+       base_count  the server's count before the first click. This is the whole
+                   of the board's retirement rule — see below.
+       type        'thread' or 'post'. Only 'thread' can appear on a board.
+
+     RETIREMENT, WHICH IS THE ONLY PART THAT IS SUBTLE.
+     A pending thread is retired by one unambiguous event: threads.list returns
+     the id. A vote has no such event on the board, because threads.list carries
+     the COUNT and not the viewer's own vote — `my_votes` is a threads.get field
+     and nothing else has it. Two different rules therefore apply to the two
+     surfaces, and both are chosen so that the failure mode is "briefly one
+     short", never "counted twice":
+
+       thread page   retire when threads.get's `my_votes` AGREES with intent.
+                     That is direct evidence about this viewer's own row, and it
+                     is what thread.js calls reconcile() with.
+       board         retire the moment the server's count stops being
+                     `base_count`. Walk the cases: my vote lands, count becomes
+                     base+1, differs, retire — and the count shown is already
+                     right, so the swap is invisible. Somebody ELSE votes before
+                     mine lands, count becomes base+1, differs, retire — the
+                     board is one short until the next refresh, which is wrong
+                     by one for at most 75 s and self-corrects. Nothing changes,
+                     count is still base, apply the delta. There is no ordering
+                     of events in which the delta is added to a count that
+                     already contains it, which is the only outcome that would
+                     actually mislead anyone (§5.4's double-count, one person
+                     counted twice on the leaderboard).
+
+     Ten minutes, not the fifteen a pending thread gets. The write-visibility
+     lag this covers is tens of seconds; past ten minutes the vote is either
+     landed or lost, and in both cases the server's number is the true one. */
+
+  var VOTES_TTL_MS = 10 * 60 * 1000;
+
+  function votesWrite(map) {
+    var k, any = false;
+    for (k in map) { if (Object.prototype.hasOwnProperty.call(map, k)) { any = true; break; } }
+    if (!any) { lsDel(K_VOTES); return; }
+    writeJSON(K_VOTES, { uid: currentUid(), items: map });
+  }
+
+  /* Prunes on every read, exactly as pendingRead() does: an expired entry is
+     deleted rather than merely declined. */
+  function votesRead() {
+    var blob = readJSON(K_VOTES);
+    if (!blob || typeof blob !== 'object') return {};
+    if (String(blob.uid || '') !== currentUid()) { lsDel(K_VOTES); return {}; }
+    var items = (blob.items && typeof blob.items === 'object') ? blob.items : {};
+    var now = Date.now(), out = {}, dirty = false, k, it;
+    for (k in items) {
+      if (!Object.prototype.hasOwnProperty.call(items, k)) continue;
+      it = items[k];
+      if (!it || typeof it !== 'object' || typeof it.on !== 'boolean' ||
+          !(Number(it.at) > 0) || (now - Number(it.at)) > VOTES_TTL_MS) {
+        dirty = true;
+        continue;
+      }
+      out[k] = it;
+    }
+    if (dirty) votesWrite(out);
+    return out;
+  }
+
+  /* Called by thread.js the instant the student clicks, BEFORE any request is
+     issued — the point of the store is that it survives a navigation that
+     happens while the request is still in flight. `baseOn`/`baseCount` are the
+     server's own numbers for this target, and are recorded once: a second click
+     updates `on` and leaves the base alone, so the two clicks together are one
+     pending opinion measured against one server reading. */
+  function setPendingVote(type, targetId, on, baseOn, baseCount) {
+    if (!targetId) return;
+    var map = votesRead();
+    var key = String(targetId);
+    var prev = map[key];
+    /* A `landed` entry has already been reconciled against the board, so its
+       base is a reading of the past and re-using it would measure the new click
+       against a number nobody is showing any more. Treat it as absent: the
+       caller has just read the current server values and is passing them in. */
+    if (prev && prev.landed) prev = null;
+    map[key] = {
+      at: Date.now(),
+      type: (type === 'post') ? 'post' : 'thread',
+      on: !!on,
+      base_on: prev ? !!prev.base_on : !!baseOn,
+      base_count: prev ? Number(prev.base_count) : (Number(baseCount) || 0)
+    };
+    /* Back where we started: the student voted and un-voted, or un-voted and
+       voted, inside the window. There is no opinion left to hold, and keeping a
+       zero-delta entry would only give the board something to get wrong. */
+    if (map[key].on === map[key].base_on) delete map[key];
+    votesWrite(map);
+  }
+
+  function pendingVote(targetId) {
+    var it = votesRead()[String(targetId)];
+    return it || null;
+  }
+
+  /* ---------------------------------------------- what was actually SENT ---
+     Called by thread.js when a votes.toggle RESPONDS. `sent` is the state the
+     backend confirmed it now holds, and it is not the same fact as either the
+     student's intent or anything a later read says for the next 30-50 s.
+
+     THIS FIELD IS WHAT STOPS THE DOUBLE-COUNT, so it is worth being explicit
+     about the sequence it exists for. votes.toggle decides add-or-remove by
+     re-reading tbl_Votes; a second toggle issued before the first row is
+     readable therefore inserts a SECOND row, and one student is counted twice
+     on the board and in the leaderboard (§5.4). thread.js's scheduler prevents
+     that by only issuing a toggle when the student's intent differs from what
+     the backend is KNOWN to hold — and without this field, "known to hold" had
+     to be read off my_votes, which is precisely the number that is stale.
+
+     Concretely, without it: click, toggle sent, backend confirms voted=true;
+     absorb() runs on some later paint, my_votes still says false, the scheduler
+     concludes a toggle is owed and sends a second one. Two rows. With it, the
+     confirmed answer outranks the lagging read until the read catches up. */
+  function noteVoteSent(targetId, sentOn) {
+    var map = votesRead(), key = String(targetId);
+    var it = map[key];
+    if (!it) return false;
+    it.sent = !!sentOn;
+    votesWrite(map);
+    return true;
+  }
+
+  /* What the backend is known to hold for this target: the confirmed answer if
+     a toggle has been acknowledged, otherwise `fallback` — which the caller
+     passes as whatever the last read said. */
+  function knownVoteState(targetId, fallback) {
+    var it = pendingVote(targetId);
+    if (it && typeof it.sent === 'boolean') return it.sent;
+    return !!fallback;
+  }
+
+  function clearPendingVote(targetId) {
+    var map = votesRead(), key = String(targetId);
+    if (!Object.prototype.hasOwnProperty.call(map, key)) return false;
+    delete map[key];
+    votesWrite(map);
+    return true;
+  }
+
+  /* thread.js's retirement rule, kept here so the store has exactly one owner.
+     `serverOn` is what my_votes says for this target. */
+  function reconcilePendingVote(targetId, serverOn) {
+    var it = pendingVote(targetId);
+    if (!it) return false;
+    if (!!serverOn !== !!it.on) return false;
+    return clearPendingVote(targetId);
+  }
+
+  /* A COPY of a board payload with every still-unlanded vote folded into the
+     row's count, and `_vote_pending` set so a caller may say so if it wants to.
+     Never mutates its argument — withPending() may be handing us the cached
+     blob itself. The cache is never written back either, so it keeps being a
+     faithful record of what the server actually said.
+
+     THE `landed` FLAG IS STICKY, AND IT IS NOT A DELETE.
+     The first draft of this retired the whole entry the moment the board's
+     count stopped matching base_count. That is wrong in a way worth spelling
+     out, because it silently re-opens the bug the store was written to fix: the
+     entry is ALSO what the THREAD page paints `my_votes` from, and the board's
+     count is no evidence at all about whether this viewer's own row has landed
+     — somebody else voting moves it just as well. Deleting on that signal meant
+     a stranger's upvote could make your own upvote disappear from the thread
+     page again, which is the original complaint with extra steps.
+
+     So the board's rule marks only the board's half done. It has to be sticky
+     rather than recomputed per read, because "count no longer equals base" can
+     stop being true again (the other voter changes their mind) and the delta
+     would then be applied a second time to a count that had already absorbed
+     it. Once the board has seen the server move, it never adds the delta again.
+     The entry itself is retired by real evidence — threads.get's my_votes, via
+     reconcilePendingVote() — or by the TTL. */
+  function applyPendingVotes(list) {
+    var map = votesRead();
+    var keys = Object.keys(map);
+    if (!keys.length) return list;
+    var rows = (list && list.threads) || [];
+    if (!rows.length) return list;
+
+    var touched = false, dirty = false, out, k, i, row, it, copy;
+    var next = [];
+
+    for (i = 0; i < rows.length; i++) {
+      row = rows[i];
+      it = (row && row.thread_id) ? map[String(row.thread_id)] : null;
+      if (!it || it.type !== 'thread' || it.landed) { next.push(row); continue; }
+      if (Number(row.upvotes) !== Number(it.base_count)) {
+        it.landed = true;
+        dirty = true;
+        next.push(row);
+        continue;
+      }
+      copy = {};
+      for (k in row) { if (Object.prototype.hasOwnProperty.call(row, k)) copy[k] = row[k]; }
+      copy.upvotes = Math.max(0, Number(row.upvotes) + (it.on ? 1 : -1));
+      copy._vote_pending = true;
+      next.push(copy);
+      touched = true;
+    }
+
+    if (dirty) votesWrite(map);
+    if (!touched) return list;
+
+    out = {};
+    for (k in list) { if (Object.prototype.hasOwnProperty.call(list, k)) out[k] = list[k]; }
+    out.threads = next;
     return out;
   }
 
@@ -1462,6 +1771,16 @@
     addPendingThread: addPendingThread,
     pendingThreads: pendingThreads,
     pendingThreadById: pendingThreadById,
+    /* The pending vote store. thread.js is the only writer — votes can only be
+       cast from a thread page — but the board reads it through withPending(),
+       and index.js/search.js get the adjusted counts without knowing it exists,
+       exactly as they do for a pending thread row. */
+    setPendingVote: setPendingVote,
+    pendingVote: pendingVote,
+    clearPendingVote: clearPendingVote,
+    reconcilePendingVote: reconcilePendingVote,
+    noteVoteSent: noteVoteSent,
+    knownVoteState: knownVoteState,
     activeCallCount: activeCallCount,
     requireLogin: requireLogin,
     logout: logout,

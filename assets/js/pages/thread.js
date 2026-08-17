@@ -84,6 +84,21 @@
   function ssRemove(key) {
     try { window.sessionStorage.removeItem(key); } catch (e) { /* private mode */ }
   }
+  /* localStorage, for the one stash that has to outlive the tab — the
+     threads.get view cache. Same contract as the ss* trio: every failure
+     degrades to "no stash", never to a broken page. */
+  function lsRead(key) {
+    try {
+      var raw = window.localStorage.getItem(key);
+      if (!raw) return null;
+      var v = JSON.parse(raw);
+      return (v && typeof v === 'object') ? v : null;
+    } catch (e) { return null; }
+  }
+  function lsWrite(key, value) {
+    try { window.localStorage.setItem(key, JSON.stringify(value)); return true; }
+    catch (e) { return false; }          /* quota or private mode */
+  }
   function stashFresh(at) {
     var t = Number(at) || 0;
     return t > 0 && (Date.now() - t) < STASH_TTL_MS;
@@ -158,10 +173,32 @@
    * Same stale-while-revalidate deal as api.js's board cache, with three
    * differences that all follow from what a thread is:
    *
-   *   SHORT. THREAD_CACHE_TTL_MS is three minutes, not twelve hours. A board
-   *   that is an hour stale is yesterday's news; a THREAD that is an hour stale
-   *   may be missing the answer the reader came back for. Past the TTL the
-   *   entry is dropped and the spinner is the honest answer.
+   *   THIRTY MINUTES, IN localStorage — raised from three minutes in
+   *   sessionStorage on 2026-08-17. The original pair of numbers was too timid
+   *   to pay for itself: sessionStorage meant the cache was empty in every new
+   *   tab and after every browser restart, and three minutes meant that coming
+   *   back to a thread after reading two others — the single most ordinary
+   *   thing a reader does on this site — was a cold 7-21 s spinner for a
+   *   payload this browser had already been handed.
+   *
+   *   The reason the short TTL felt necessary was a worry that a stale thread
+   *   "may be missing the answer the reader came back for". Re-read boot()
+   *   before shortening it again: threadP is issued on EVERY load, cache hit or
+   *   not, and the fresh payload replaces this one 7-21 s later. The cache has
+   *   never been an answer, only a first paint, so its age governs how long a
+   *   reader looks at last-known state, not how long they are misinformed. Half
+   *   an hour of that, ended by the truth arriving unprompted, beats half a
+   *   minute of blank page. What DOES bound it is sign-out: clearSession()
+   *   drops the key, which is what makes a persistent cache safe on a shared
+   *   lab machine, and it now deletes it from both stores because browsers that
+   *   ran the older build still hold the sessionStorage copy.
+   *
+   *   CAPPED, which sessionStorage made unnecessary and localStorage does not.
+   *   A tab-scoped cache emptied itself; a persistent one accumulates whole
+   *   post bodies across weeks until it hits the ~5 MB quota, and a quota
+   *   failure is silent. VIEW_CACHE_MAX keeps the most recently written
+   *   entries and evicts the rest, and a write that fails anyway evicts down
+   *   and retries once before giving up.
    *
    *   RAW. The SERVER payload is stored, never the merged model — the same
    *   discipline as api.js ("the cache stays a faithful record of what the
@@ -181,8 +218,9 @@
    * never runs at all for a thread that is still pending — the stash branch in
    * boot() is checked first and wins.
    * ========================================================================*/
-  var STASH_THREAD_VIEW = 'clinic_thread_v1';    /* == api.js SK_THREAD_VIEW */
-  var THREAD_CACHE_TTL_MS = 3 * 60 * 1000;
+  var STASH_THREAD_VIEW = 'clinic_thread_v1';    /* == api.js K_THREAD_VIEW */
+  var THREAD_CACHE_TTL_MS = 30 * 60 * 1000;
+  var VIEW_CACHE_MAX = 12;
 
   function viewUid() {
     try {
@@ -196,7 +234,7 @@
      than merely declined, so a browser that visited forty threads yesterday is
      not still carrying them. */
   function viewBox() {
-    var box = ssRead(STASH_THREAD_VIEW) || {};
+    var box = lsRead(STASH_THREAD_VIEW) || {};
     var uid = viewUid();
     var keys = Object.keys(box);
     var dirty = false;
@@ -207,8 +245,34 @@
                String(slot.uid || '') === uid;
       if (!ok) { delete box[keys[i]]; dirty = true; }
     }
-    if (dirty) ssWrite(STASH_THREAD_VIEW, box);
+    if (dirty) viewBoxWrite(box);
     return box;
+  }
+
+  /* Trim to the VIEW_CACHE_MAX most recently written entries. Newest-first by
+     `at`, which for this cache is also least-recently-USED: an entry is
+     rewritten by viewCachePut() every time its thread is opened. */
+  function viewBoxTrim(box, keep) {
+    var keys = Object.keys(box);
+    if (keys.length <= keep) return false;
+    keys.sort(function (a, b) {
+      return (Number(box[b] && box[b].at) || 0) - (Number(box[a] && box[a].at) || 0);
+    });
+    for (var i = keep; i < keys.length; i++) delete box[keys[i]];
+    return true;
+  }
+
+  /* The one write path, so the cap and the quota retry cannot be bypassed.
+     A quota failure is silent in the browser, so it is handled rather than
+     hoped about: halve the cache and try once more, and if THAT fails give the
+     key up entirely rather than leave a half-written box behind. Losing the
+     cache costs one ordinary spinner; a corrupt one costs a wrong first paint. */
+  function viewBoxWrite(box) {
+    viewBoxTrim(box, VIEW_CACHE_MAX);
+    if (lsWrite(STASH_THREAD_VIEW, box)) return;
+    viewBoxTrim(box, Math.max(1, Math.floor(VIEW_CACHE_MAX / 2)));
+    if (lsWrite(STASH_THREAD_VIEW, box)) return;
+    try { window.localStorage.removeItem(STASH_THREAD_VIEW); } catch (e) { /* ignore */ }
   }
 
   function viewCacheGet(tid) {
@@ -224,7 +288,7 @@
     if (!d || !d.thread) return;
     var box = viewBox();
     box[String(tid)] = { at: Date.now(), uid: viewUid(), data: d };
-    ssWrite(STASH_THREAD_VIEW, box);
+    viewBoxWrite(box);
   }
 
   /* The one case a cached thread is actively WRONG rather than merely old: the
@@ -234,7 +298,7 @@
     var box = viewBox();
     if (!Object.prototype.hasOwnProperty.call(box, String(tid))) return;
     delete box[String(tid)];
-    ssWrite(STASH_THREAD_VIEW, box);
+    viewBoxWrite(box);
   }
 
   /* ---------------------------------------------------------------- shims */
@@ -561,8 +625,15 @@
   var threadId = new URLSearchParams(location.search).get('id') || '';
   var me = null;
   var model = { thread: null, posts: [] };
-  var voted = {};                /* target_id -> true                        */
-  var voteSettleUntil = {};      /* target_id -> ms epoch the button reopens */
+  var voted = {};                /* SET of target_id the viewer has upvoted   */
+  /* target_id -> {on, count} the BACKEND's own numbers, recorded by absorb()
+     before the pending overlay touches the model. The scheduler decides what
+     to send from these; render() draws from the overlaid model. */
+  var voteServer = {};
+  var voteSendAt = {};           /* target_id -> earliest ms a toggle may go  */
+  var voteBusy = {};             /* target_id -> a toggle is in flight        */
+  var voteTimer = {};            /* target_id -> the scheduled-send timer     */
+  var votePaint = {};            /* target_id -> repaint the live button      */
   var topContrib = {};           /* user_id -> true, all-time top 3          */
   var replyParent = '';          /* '' = top-level reply                     */
   var draft = { body: '', anon: false };
@@ -785,115 +856,224 @@
      thread or archived board), or '' when voting is live. votes.toggle is
      guarded flow-side for both (§5.4); this only stops the student spending
      15 seconds to be told no. */
-  /* --- why a vote button goes quiet for a moment after you use it ----------
-     A write to this workbook becomes readable only after tens of seconds
-     (measured against the live tenant on 2026-08-11: 26.5 s, 28.4 s, 53.7 s).
-     `votes.toggle` decides add-or-remove by re-reading tbl_Votes, so a second
-     click inside that window cannot see the first write, takes the target for
-     unvoted, and inserts a SECOND row — one person counted twice, both on the
-     board and in the contributor score that feeds the leaderboard.
+  /* --- the vote button, and why it no longer switches itself off -----------
 
-     Nothing flow-side can fix that: the row genuinely is not readable yet, so
-     the flow is not wrong, it is blind. The only place the second write can be
-     prevented is here, by not issuing it. The button therefore stays disabled
-     until the write must have landed, and says so. Keyed by target rather than
-     by element because a re-render builds a new button for the same target.
+     THE CONSTRAINT, WHICH HAS NOT CHANGED. A write to this workbook becomes
+     readable only after tens of seconds (measured against the live tenant on
+     2026-08-11: 26.5 s, 28.4 s, 53.7 s). `votes.toggle` decides add-or-remove
+     by re-reading tbl_Votes, so a second TOGGLE issued inside that window
+     cannot see the first write, takes the target for unvoted, and inserts a
+     SECOND row — one person counted twice, on the board and in the contributor
+     score that feeds the leaderboard. Nothing flow-side can fix it: the row
+     genuinely is not readable, so the flow is not wrong, it is blind.
 
-     WHY 75 s AND NOT THE ORIGINAL 45 s (raised 2026-08-12).
-     45 s never covered the distribution it was sized against — the worst of the
-     three measurements above is 53.7 s, so the window closed a good ten seconds
-     before the slowest observed write became readable, and a second click in
-     that gap double-counted the voter. Two things then made it worse rather
-     than better: the timer starts when the RESPONSE arrives, and votes.toggle
-     now performs its write AFTER responding (the deferred-write pass), so the
-     row is issued a few seconds later still. 75 s covers the measured tail plus
-     the deferral plus margin.
-     THIS FLOOR AND THE FLOW ARE COUPLED: it must be deployed BEFORE the flow
-     package that defers the write, per the site-first rule in V3_CONTRACT, or
-     there is a window in which the button re-arms earlier than the row lands. */
-  var VOTE_SETTLE_MS = 75000;
+     WHAT CHANGED (2026-08-17). The old fix was to disable the button for 75 s
+     and say "Counting your vote — you can change it in 63s". It was correct and
+     it was awful: the student's own reading of it, reported almost verbatim,
+     was that the site had frozen. A control that cannot be pressed for over a
+     minute after being pressed once is indistinguishable from a broken one, and
+     it made a site that was merely slow feel unreliable.
 
-  function voteSettleLeft(targetId) {
-    var until = voteSettleUntil[targetId] || 0;
-    return Math.max(0, until - Date.now());
+     The mistake was treating one gap as two facts. "Do not send a second
+     TOGGLE inside 75 s" is a constraint on the NETWORK. "Do not let the student
+     change their mind for 75 s" is a constraint on the UI, it was never
+     required, and it is the only one anybody could see.
+
+     So they are separated. The button is always live. Every click flips intent,
+     repaints instantly, and is written to api.js's pending vote store so it
+     survives a navigation. A scheduler underneath decides when — and whether —
+     anything goes over the wire:
+
+       * a toggle is owed only when INTENT differs from what the backend is
+         KNOWN to hold (api.knownVoteState: the last acknowledged toggle if
+         there is one, otherwise the last read);
+       * at most one toggle per target per VOTE_SEND_GAP_MS, and never while one
+         is in flight;
+       * click twice inside the gap and NOTHING is sent, because intent is back
+         where the backend already is. The commonest "I changed my mind" now
+         costs zero flow runs, where it used to cost two and a lockout.
+
+     So the count of rows written is the same or lower than before, the
+     double-count is still impossible, and the student is never told to wait.
+
+     VOTE_SEND_GAP_MS INHERITS THE OLD FLOOR'S SIZE AND ITS COUPLING TO THE
+     FLOW. 75 s covers the measured tail (53.7 s) plus the deferred-write pass —
+     votes.toggle performs its write AFTER responding, so the row is issued a
+     few seconds later still — plus margin. It must not be shortened without
+     re-measuring, and per the site-first rule in V3_CONTRACT it must be
+     deployed before, never after, any flow change that defers the write
+     further. */
+  var VOTE_SEND_GAP_MS = 75000;
+
+  function clearVoteTimer(id) {
+    if (voteTimer[id]) { window.clearTimeout(voteTimer[id]); delete voteTimer[id]; }
   }
 
-  function applyVoteSettle(b, targetId, repaint) {
-    var left = voteSettleLeft(targetId);
-    if (left <= 0) return false;
-    b.disabled = true;
-    b.title = 'Counting your vote — you can change it in ' +
-      Math.ceil(left / 1000) + 's';
-    b.setAttribute('aria-label', b.title);
-    window.setTimeout(function () {
-      if (!b.isConnected) return;          /* re-rendered away; the new one re-arms */
-      b.disabled = false;
-      if (repaint) repaint();
-    }, left);
-    return true;
+  function repaintVote(id) {
+    var fn = votePaint[id];
+    if (typeof fn === 'function') fn();
+  }
+
+  /* What the backend is known to hold, as opposed to what the last read said.
+     The pending store owns the distinction — see api.js's noteVoteSent. */
+  function backendVoteState(id) {
+    var srv = voteServer[id] || { on: false, count: 0 };
+    var api = API();
+    if (typeof api.knownVoteState !== 'function') return srv.on;
+    try { return api.knownVoteState(id, srv.on); } catch (e) { return srv.on; }
+  }
+
+  /* The scheduler. Idempotent and safe to call at any time: it works out what
+     is owed from state alone, so a click, a completion and a timer can all call
+     it without coordinating. */
+  function syncVote(targetType, id) {
+    if (voteBusy[id]) return;                 /* the completion re-checks */
+    var want = !!voted[id];
+    if (want === backendVoteState(id)) { clearVoteTimer(id); return; }
+
+    var wait = (voteSendAt[id] || 0) - Date.now();
+    if (wait > 0) {
+      if (voteTimer[id]) return;              /* already waiting on this gap */
+      voteTimer[id] = window.setTimeout(function () {
+        delete voteTimer[id];
+        syncVote(targetType, id);
+      }, wait + 50);
+      return;
+    }
+    clearVoteTimer(id);
+
+    var api = API();
+    voteBusy[id] = true;
+    repaintVote(id);
+
+    api.call('votes.toggle', { target_type: targetType, target_id: id })
+      .then(function (res) {
+        delete voteBusy[id];
+        /* The gap is measured from the RESPONSE, because that is when the flow
+           issues its deferred write. */
+        voteSendAt[id] = Date.now() + VOTE_SEND_GAP_MS;
+
+        var on = (res && typeof res.voted !== 'undefined') ? !!res.voted : want;
+        var srv = voteServer[id] || { on: false, count: 0 };
+        var n = (res && typeof res.count !== 'undefined')
+          ? Number(res.count)
+          : Math.max(0, srv.count + (on ? 1 : -1));
+        voteServer[id] = { on: on, count: n };
+
+        /* Record what the backend now holds, so a later absorb() whose my_votes
+           has not caught up cannot make the scheduler send this twice. */
+        try { if (typeof api.noteVoteSent === 'function') api.noteVoteSent(id, on); }
+        catch (e) { /* store unavailable; the gap alone still bounds it */ }
+
+        /* Keep the model in step so a re-render draws the same numbers. The
+           model carries the OVERLAID count — what the student is looking at —
+           which is the confirmed count adjusted by any intent not yet sent. */
+        var shown = Math.max(0, n + (want === on ? 0 : (want ? 1 : -1)));
+        setModelUpvotes(targetType, id, shown);
+        repaintVote(id);
+        syncVote(targetType, id);             /* intent may have moved meanwhile */
+      })['catch'](function (e) {
+        delete voteBusy[id];
+        /* Space any retry, whatever went wrong. A `network` rejection means the
+           write MAY still have landed (api.js's error contract), so re-issuing
+           it promptly is exactly the double-write this gap exists to prevent. */
+        voteSendAt[id] = Date.now() + VOTE_SEND_GAP_MS;
+
+        /* Roll intent back to what the backend holds and drop the stored
+           opinion — the same rollback the button did before this scheduler
+           existed, so a failure is no worse than it ever was. */
+        var back = backendVoteState(id);
+        setVoted(id, back);
+        try { if (typeof api.clearPendingVote === 'function') api.clearPendingVote(id); }
+        catch (e2) { /* nothing to undo */ }
+        var srv2 = voteServer[id] || { on: back, count: 0 };
+        setModelUpvotes(targetType, id, srv2.count);
+        repaintVote(id);
+
+        if (e && e.code === 'unauthorized') return;   /* api.js already bounced */
+        toast(errText(e), 'error');
+      });
+  }
+
+  function setModelUpvotes(targetType, id, n) {
+    if (targetType === 'thread') {
+      if (model.thread && String(model.thread.thread_id) === String(id)) {
+        model.thread.upvotes = n;
+      }
+      return;
+    }
+    model.posts.forEach(function (p) {
+      if (p && String(p.post_id) === String(id)) p.upvotes = n;
+    });
   }
 
   function voteButton(targetType, targetId, count, selfOwned, frozen) {
+    var id = String(targetId);
     var b = el('button', 'vote-btn');
     b.type = 'button';
     b.appendChild(icon('arrow-up'));
-    var num = el('span', null, String(Number(count) || 0));
+    var num = el('span', null, '0');
     b.appendChild(num);
     if (frozen) b.disabled = true;
 
-    function paint(on, n) {
+    /* absorb() records the backend's numbers for everything in the payload, but
+       a button can be built for a target it never saw — a pending reply, drawn
+       from the local stash. Seed from what the caller is showing. */
+    if (!voteServer[id]) {
+      voteServer[id] = { on: !!voted[id], count: Number(count) || 0 };
+    }
+
+    /* `count` is the OVERLAID model number and is used only for that seeding;
+       everything drawn below is recomputed from state, so a repaint triggered
+       from anywhere agrees with a full re-render. */
+    function paint() {
+      var on = !!voted[id];
+      var srv = voteServer[id];
+      var n = Math.max(0, srv.count + (on === srv.on ? 0 : (on ? 1 : -1)));
       num.textContent = String(n);
       b.classList[on ? 'add' : 'remove']('voted');
-      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+
+      /* "Saving" is anything the backend has not acknowledged yet. It is a
+         quiet visual state, never a disabled one — see the note above. */
+      var saving = !!voteBusy[id] || (on !== backendVoteState(id));
+      b.classList[saving ? 'add' : 'remove']('is-saving');
+
       b.title = frozen ? frozen
-                       : (selfOwned ? 'You cannot upvote your own post'
-                                    : (on ? 'Remove your upvote' : 'Upvote'));
+        : selfOwned ? 'You cannot upvote your own post'
+        : saving ? (on ? 'Upvoted — saving. The shared sheet takes a moment to catch up.'
+                       : 'Upvote removed — saving. The shared sheet takes a moment to catch up.')
+        : (on ? 'Remove your upvote' : 'Upvote');
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
       b.setAttribute('aria-label', b.title + ' — ' + n + ' so far');
     }
-    paint(!!voted[targetId], Number(count) || 0);
-    /* a re-render during the settle window must not hand back a live button */
-    applyVoteSettle(b, targetId, function () {
-      paint(!!voted[targetId], Number(b.querySelector('span').textContent) || 0);
-    });
+
+    /* Keyed by target, not by element: a re-render builds a new button for the
+       same target and must take ownership of the repaint from the old one. */
+    votePaint[id] = function () { if (b.isConnected) paint(); };
+    paint();
 
     b.addEventListener('click', function () {
       if (frozen) { toast(frozen, ''); return; }
       if (selfOwned) { toast('You cannot upvote your own post.', 'error'); return; }
-      if (b.disabled) return;
 
-      var wasOn = !!voted[targetId];
-      var wasN = Number(num.textContent) || 0;
-      var nowOn = !wasOn;
-      var nowN = Math.max(0, wasN + (nowOn ? 1 : -1));
+      var srv = voteServer[id];
+      var next = !voted[id];
+      setVoted(id, next);
 
-      voted[targetId] = nowOn;                       /* optimistic */
-      paint(nowOn, nowN);
-      b.disabled = true;
+      /* Persist BEFORE painting and long before sending: the whole point is
+         that this survives the student navigating away while the request — or
+         the 75 s gap before it is even issued — is still outstanding. */
+      try {
+        var api = API();
+        if (typeof api.setPendingVote === 'function') {
+          api.setPendingVote(targetType, id, next, srv.on, srv.count);
+        }
+      } catch (e) { /* private mode; the click still works for this page */ }
 
-      API().call('votes.toggle', { target_type: targetType, target_id: targetId })
-        .then(function (res) {
-          var on = (res && typeof res.voted !== 'undefined') ? !!res.voted : nowOn;
-          var n = (res && typeof res.count !== 'undefined') ? Number(res.count) : nowN;
-          voted[targetId] = on;
-          paint(on, n);
-          /* the row is written but not yet readable — hold the button until it is */
-          voteSettleUntil[targetId] = Date.now() + VOTE_SETTLE_MS;
-          if (!applyVoteSettle(b, targetId, function () { paint(on, n); })) {
-            b.disabled = false;
-          }
-          /* keep the model in step so a re-render shows the same numbers */
-          if (targetType === 'thread') {
-            if (model.thread) model.thread.upvotes = n;
-          } else {
-            model.posts.forEach(function (p) { if (p.post_id === targetId) p.upvotes = n; });
-          }
-        })['catch'](function (e) {
-          b.disabled = false;
-          voted[targetId] = wasOn;
-          paint(wasOn, wasN);
-          if (e && e.code === 'unauthorized') return;
-          toast(errText(e), 'error');
-        });
+      setModelUpvotes(targetType, id,
+        Math.max(0, srv.count + (next === srv.on ? 0 : (next ? 1 : -1))));
+      paint();
+      syncVote(targetType, id);
     });
     return b;
   }
@@ -2576,12 +2756,104 @@
     pendingDrop(threadId, landed);
   }
 
+  /* `voted` is a SET of ids, so an un-voted target is deleted rather than set
+     to false. modelSig() fingerprints it with Object.keys(), and a key whose
+     value is false still counts as a key — writing `voted[id] = false` moved
+     the fingerprint without changing anything drawable and cost a re-render
+     (which rebuilds the composer and takes the caret with it). */
+  function setVoted(id, on) {
+    if (on) voted[id] = true; else delete voted[id];
+  }
+
   function absorb(d) {
     model.thread = d && d.thread;
     model.posts = (d && d.posts) || [];
     voted = {};
     ((d && d.my_votes) || []).forEach(function (id) { voted[id] = true; });
+    applyVoteOverlay();
     mergePending();
+  }
+
+  /* ------------------------------------------- the pending vote overlay ---
+     The ONE place a locally-held vote is folded over the server's answer, run
+     on every absorb() so that all four paint sources — the stash, the pending
+     board row, the view cache and the live threads.get — agree with each other
+     and with the board.
+
+     It does three things, in this order, and the order matters:
+
+       1. RECORD THE SERVER'S OWN NUMBERS in voteServer, before any overlay
+          touches them. The scheduler below needs to know what the backend
+          currently believes in order to decide whether a toggle is owed, and
+          once the overlay has been applied to the model that information is no
+          longer recoverable from it.
+       2. RETIRE anything the server has caught up on. `my_votes` naming this
+          target is direct evidence about this viewer's own row — the strongest
+          available — so api.reconcilePendingVote() drops the entry and the
+          model is left exactly as the server sent it.
+       3. APPLY what survives, to `voted` AND to the count. Both, always: a
+          button that says "voted" above a number that has not moved reads as a
+          half-finished action, which is the impression the whole store exists
+          to remove.
+
+     MUTATING model IS SAFE HERE AND IS NOT AN ACCIDENT. Every payload reaching
+     absorb() is a private object — viewCacheGet() and api.pendingThreadById()
+     each JSON.parse a fresh copy per read, and absorbServer() hands the raw
+     blob to viewCachePut() BEFORE calling absorb(), so what is cached is always
+     what the server said and never the overlaid version. Keep that ordering if
+     absorbServer() is ever rearranged.
+
+     Tolerant of an api.js that predates the store (the site is deployed
+     independently of any flow import, and of itself): no pendingVote, no
+     overlay, and the page behaves exactly as it did before. */
+  function applyVoteOverlay() {
+    var api = API();
+    if (typeof api.pendingVote !== 'function') return;
+
+    var targets = [], i, p;
+    if (model.thread && model.thread.thread_id) {
+      targets.push({ obj: model.thread, id: String(model.thread.thread_id) });
+    }
+    for (i = 0; i < model.posts.length; i++) {
+      p = model.posts[i];
+      if (p && p.post_id) targets.push({ obj: p, id: String(p.post_id) });
+    }
+
+    for (i = 0; i < targets.length; i++) {
+      var id = targets[i].id, obj = targets[i].obj;
+      var serverOn = !!voted[id];
+      var serverCount = Number(obj.upvotes) || 0;
+      voteServer[id] = { on: serverOn, count: serverCount };
+
+      var pv = null;
+      try { pv = api.pendingVote(id); } catch (e) { pv = null; }
+      if (!pv) continue;
+      try {
+        if (api.reconcilePendingVote(id, serverOn)) continue;
+      } catch (e2) { /* treat as not reconciled */ }
+
+      setVoted(id, !!pv.on);
+      obj.upvotes = Math.max(0, serverCount + (pv.on ? 1 : -1));
+
+      /* RESUME AN UNFINISHED TOGGLE. The scheduler is driven by clicks and by
+         its own timer, and both die with the page. So this sequence used to
+         strand a vote silently: click, click again inside the 75 s gap (intent
+         is now the opposite of what was sent, and a toggle is owed at the end
+         of the gap), then navigate away before the timer fires. The store kept
+         the student's intent and every surface painted it, but nothing was ever
+         going to send it — until the TTL expired and the display snapped back
+         to what the backend had held all along.
+
+         Reopening the thread is the natural moment to finish the job, and
+         syncVote() already works entirely from state: it sends nothing if
+         intent and the backend agree, and re-arms the timer if the gap has not
+         run out. Deferred to a task of its own so a failing toggle can never
+         take an absorb() — and with it the whole paint — down with it. */
+      var wantType = (pv.type === 'post') ? 'post' : 'thread';
+      (function (tt, tid) {
+        window.setTimeout(function () { syncVote(tt, tid); }, 0);
+      })(wantType, id);
+    }
   }
 
   /* absorb() for a payload that genuinely came from threads.get, which is the

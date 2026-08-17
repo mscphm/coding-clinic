@@ -97,6 +97,85 @@
 
   function errMsg(e, fallback) { return (e && (e.message || e.error)) || fallback; }
 
+  /* ========================================================================
+   * THE slots.list VIEW CACHE
+   * -------------------------------------------------------------------------
+   * Until now this page opened on a bare spinner and held it for the length of
+   * a slots.list — 10-20 s — on EVERY visit, including the "did I book the 2pm
+   * or the 2.20?" re-check thirty seconds later. Nothing here makes the call
+   * faster; it stops the page being blank while it runs when this browser was
+   * given the answer a moment ago. Same stale-while-revalidate arrangement as
+   * api.js's board cache and thread.js's view cache, and the same three safety
+   * rules: namespaced by uid, TTL'd, and dropped on sign-out.
+   *
+   * FIVE MINUTES, WHICH IS SHORT ON PURPOSE. A slot grid is CONTENDED in a way
+   * a thread is not — the interesting field is whether somebody else has taken
+   * the 2pm, and that can change without this student doing anything. Five
+   * minutes bounds how wrong a first paint can be; the real answer lands 10-20 s
+   * later and re-renders over it either way.
+   *
+   * WHAT MAKES A STALE GRID SAFE TO SHOW AT ALL: nothing here is authoritative.
+   * slots.book re-reads the table and rejects a taken slot with a conflict, so
+   * the worst case is a student clicking a slot that has gone and being told
+   * so — which is already reachable today, since a grid rendered from a LIVE
+   * slots.list is 10-20 s old by the time it is on screen. The cache widens
+   * that window, it does not open it.
+   *
+   * NEVER CACHED: a response fetched during a booking-confirmation retry. Those
+   * are deliberately read mid-write-lag and are expected to be wrong — see
+   * confirmBooking(). storeSlots() is called from load() only.
+   * ======================================================================*/
+  var SLOTS_CACHE_KEY = 'clinic_slots_v1';
+  var SLOTS_TTL_MS = 5 * 60 * 1000;
+
+  function slotsUid() {
+    var u = currentUser();
+    return (u && u.user_id) ? String(u.user_id) : '';
+  }
+
+  function cachedSlots() {
+    var blob = readJson(SLOTS_CACHE_KEY);
+    if (!blob || typeof blob !== 'object' || !blob.data) return null;
+    if (String(blob.uid || '') !== slotsUid()) { dropSlotsCache(); return null; }
+    var at = Number(blob.at) || 0;
+    if (!at || (Date.now() - at) > SLOTS_TTL_MS) { dropSlotsCache(); return null; }
+    /* Only a payload with a slots array is worth painting. A cached empty or
+       half-shaped response would draw "no slots available" instantly, which is
+       strictly worse than the spinner it replaced. */
+    if (Object.prototype.toString.call(blob.data.slots) !== '[object Array]') return null;
+    return blob.data;
+  }
+
+  function storeSlots(res) {
+    if (!res || Object.prototype.toString.call(res.slots) !== '[object Array]') return;
+    /* THE ONE PAYLOAD THAT MUST NEVER BE CACHED: a slots.list read from inside
+       the student's OWN write lag. refresh() runs immediately after a book or a
+       cancel, and the workbook does not make that write readable for ~30-50 s,
+       so the response it gets back is a grid that contradicts the action the
+       student has just taken and been told succeeded. Storing it would pin
+       "you have no booking" over the top of a real booking for the length of
+       the TTL — the exact failure the pending stores elsewhere in this codebase
+       exist to prevent, reintroduced through the back door. holdSlotsCache()
+       both drops what is there and closes the window. */
+    if (Date.now() < slotsCacheHoldUntil) return;
+    writeJson(SLOTS_CACHE_KEY, { uid: slotsUid(), at: Date.now(), data: res });
+  }
+
+  function dropSlotsCache() {
+    try { window.localStorage.removeItem(SLOTS_CACHE_KEY); } catch (e) { /* ignore */ }
+  }
+
+  /* Sized like thread.js's VOTE_SEND_GAP_MS and for the same measurements: the
+     53.7 s worst observed write-visibility lag plus the flow's deferred write
+     plus margin. */
+  var SLOTS_WRITE_LAG_MS = 90000;
+  var slotsCacheHoldUntil = 0;
+
+  function holdSlotsCache() {
+    slotsCacheHoldUntil = Date.now() + SLOTS_WRITE_LAG_MS;
+    dropSlotsCache();
+  }
+
   /* ---------------------------------------------------------------- retry
      The Excel Online connector behind every flow can take up to ~30s (rarely
      more) for a write to become visible to a subsequent read, and any single
@@ -212,6 +291,11 @@
       state.config = res[2] || state.config;
       state.me = currentUser();
 
+      /* Cache the SERVER payload, before applySlotsResult() filters past slots
+         out of it — the filter is relative to "now" and re-running it on the
+         cached copy at paint time is what keeps a grid cached at 13:59 from
+         still offering the 14:00 slot at 14:05. */
+      storeSlots(slotsRes);
       applySlotsResult(slotsRes);
 
       state.threads = threadsRes.__error ? [] : (threadsRes.threads || []).filter(function (t) {
@@ -510,6 +594,7 @@
         if (!yes) return;
         var restore = busyBtn(btn, 'Cancelling…');
         return api.call('slots.cancel', { booking_id: b.booking_id }).then(function () {
+          holdSlotsCache();   /* the refresh below reads inside the write lag */
           toast('Booking cancelled.', 'success');
           state.selected = null;
           return refresh();
@@ -699,6 +784,10 @@
      (we do have a booking_id) instead of ever showing the form again. */
   function onBookingAccepted(res, vals) {
     confirmingState();
+    /* Same reasoning as the cancel path: everything that reads slots.list from
+       here until the write is visible is reading a grid that predates this
+       booking, and none of it may be cached. */
+    holdSlotsCache();
     var optimistic = {
       booking_id: (res && res.booking_id) || '',
       slot_id: state.selected && state.selected.slot_id,
@@ -861,6 +950,16 @@
 
   function refresh() {
     return load().then(render)['catch'](function (e) {
+      /* STALE BEATS BLANK. If a cached grid is already on screen, a failed
+         revalidation must not replace it with an error page: the student would
+         lose a usable (if slightly old) view of the slots because the network
+         hiccuped, which is a strictly worse outcome than the one they had a
+         second ago. Say so in a toast and leave the page alone. showFatal()
+         still owns the case it was written for — nothing painted yet. */
+      if (state.slots && state.slots.length) {
+        toast(errMsg(e, 'Could not refresh clinic slots — showing the last copy.'), 'error');
+        return;
+      }
       showFatal(errMsg(e, 'Could not load clinic slots.'));
     });
   }
@@ -889,8 +988,31 @@
       try { ui.renderHeader('booking'); } catch (e) { console.error('[booking] renderHeader', e); }
     }
     state.wantThread = queryParam('thread');
-    var main = document.getElementById('booking-main');
-    if (main) { clear(main); main.appendChild(el('div', 'spinner spinner-block')); }
+
+    /* FIRST PAINT FROM THE CACHE, when there is one. state.me and state.config
+       both come from synchronous localStorage reads (api.getUser and the
+       cached bootstrap), so a cached grid can be drawn complete — sidebar,
+       notice text and all — without waiting for a single flow run. refresh()
+       still runs unconditionally underneath and re-renders when the real
+       answer lands; the cache is a first paint and never an answer.
+
+       The spinner is still the honest thing to show when there is nothing
+       cached, so that branch is untouched. */
+    var painted = false;
+    var cached = cachedSlots();
+    if (cached) {
+      try {
+        state.me = currentUser();
+        state.config = cachedConfig() || state.config;
+        applySlotsResult(cached);
+        render();
+        painted = true;
+      } catch (e) { painted = false; }   /* fall back to the spinner */
+    }
+    if (!painted) {
+      var main = document.getElementById('booking-main');
+      if (main) { clear(main); main.appendChild(el('div', 'spinner spinner-block')); }
+    }
     refresh();
   }
 
